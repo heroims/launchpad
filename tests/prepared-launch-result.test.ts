@@ -5,6 +5,7 @@ describe("getPreparedLaunchResult", () => {
   it("extracts build results that can be signed by the browser", () => {
     const result = getPreparedLaunchResult({
       launchRecordId: "launch_1",
+      platform: "pumpfun",
       transactions: [{ label: "launch", description: "unsigned", serializedTransaction: "abc" }],
       requiredSigners: ["mint"],
       fee: { serviceFeeLamports: 50_000_000 },
@@ -12,6 +13,7 @@ describe("getPreparedLaunchResult", () => {
     });
 
     expect(result?.launchRecordId).toBe("launch_1");
+    expect(result?.platform).toBe("pumpfun");
     expect(result?.transactions).toHaveLength(1);
     expect(result?.requiredSigners).toEqual(["mint"]);
   });

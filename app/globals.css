@@ -182,6 +182,27 @@ textarea {
   max-height: 420px;
 }
 
+.sign-box {
+  align-items: center;
+  background: #f5f1e7;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-bottom: 12px;
+  padding: 12px;
+}
+
+.sign-box strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.full-line {
+  grid-column: 1 / -1;
+}
+
 .pill-row {
   display: flex;
   flex-wrap: wrap;
@@ -213,6 +234,10 @@ textarea {
   }
 
   .wallet-row {
+    grid-template-columns: 1fr;
+  }
+
+  .sign-box {
     grid-template-columns: 1fr;
   }
 }

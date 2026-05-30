@@ -11,6 +11,8 @@ import {
   type WalletConnection
 } from "@/lib/wallet/browser-wallet";
 import { generateLaunchMintKeypair, restoreLaunchMintKeypair } from "@/lib/wallet/mint-keypair";
+import { getPreparedLaunchResult } from "@/lib/launch/prepared-result";
+import { sendSignedTransactionsSequentially, signLaunchTransactions } from "@/lib/wallet/launch-signing";
 
 type ApiResult = Record<string, unknown> | null;
 
@@ -26,6 +28,7 @@ const defaultForm = {
   tokenSymbol: "LAUNCH",
   description: "A token launched through the API-first launch workstation",
   imageUri: "https://example.com/token.png",
+  rpcUrl: process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? "https://api.devnet.solana.com",
   preferredPlatform: "",
   providerType: "openai-compatible",
   baseUrl: "https://api.openai.com/v1",
@@ -88,6 +91,7 @@ export default function HomePage() {
   const [detectedWallet, setDetectedWallet] = useState<DetectedSolanaWallet | null>(null);
   const [walletConnection, setWalletConnection] = useState<WalletConnection | null>(null);
   const [walletMessage, setWalletMessage] = useState("");
+  const [signingStatus, setSigningStatus] = useState("");
 
   useEffect(() => {
     const saved = localStorage.getItem("launchpad.aiSecret");
@@ -166,6 +170,7 @@ export default function HomePage() {
     }),
     [form]
   );
+  const preparedLaunch = useMemo(() => getPreparedLaunchResult(result), [result]);
 
   function update(key: keyof typeof form, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -176,6 +181,7 @@ export default function HomePage() {
 
   async function callApi(path: string, payload = body) {
     setBusy(true);
+    setSigningStatus("");
     try {
       const response = await fetch(path, {
         method: "POST",
@@ -183,6 +189,79 @@ export default function HomePage() {
         body: JSON.stringify(payload)
       });
       setResult((await response.json()) as ApiResult);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function recordLaunchResult(launchRecordId: string, signatures: string[], status: "sent" | "failed", errorMessage?: string) {
+    await fetch("/api/launch/record-result", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        launchRecordId,
+        signature: signatures.join(","),
+        status,
+        errorMessage
+      })
+    });
+  }
+
+  async function signAndSendPreparedLaunch() {
+    if (!preparedLaunch) return;
+    if (!detectedWallet?.provider || !walletConnection) {
+      setSigningStatus("请先连接钱包再签名发送。");
+      return;
+    }
+
+    const mintSecretKeyBase64 = sessionStorage.getItem("launchpad.mintSecret");
+    const needsMintSigner = form.mintPublicKey && preparedLaunch.requiredSigners.includes(form.mintPublicKey);
+    if (needsMintSigner && !mintSecretKeyBase64) {
+      setSigningStatus("当前交易需要 mint keypair 签名，但本浏览器会话没有对应 mint 私钥。请重新生成 Mint 后再构造交易。");
+      return;
+    }
+
+    setBusy(true);
+    setSigningStatus("正在获取最新 blockhash...");
+    const sentSignatures: string[] = [];
+    try {
+      const { Connection } = await import("@solana/web3.js");
+      const connection = new Connection(form.rpcUrl, "confirmed");
+      const latestBlockhash = await connection.getLatestBlockhash("confirmed");
+
+      setSigningStatus("正在请求钱包签名...");
+      const signedTransactions = await signLaunchTransactions({
+        transactions: preparedLaunch.transactions,
+        requiredSigners: preparedLaunch.requiredSigners,
+        mintSecretKeyBase64,
+        recentBlockhash: latestBlockhash.blockhash,
+        wallet: detectedWallet.provider
+      });
+
+      setSigningStatus("正在发送交易...");
+      sentSignatures.push(
+        ...(await sendSignedTransactionsSequentially(signedTransactions, (rawTransaction) =>
+          connection.sendRawTransaction(rawTransaction, { skipPreflight: false })
+        ))
+      );
+
+      await recordLaunchResult(preparedLaunch.launchRecordId, sentSignatures, "sent");
+      setSigningStatus(`已发送 ${sentSignatures.length} 笔交易。`);
+      setResult((current) => ({
+        ...(current ?? {}),
+        sendStatus: "sent",
+        sentSignatures
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "签名或发送失败。";
+      setSigningStatus(message);
+      await recordLaunchResult(preparedLaunch.launchRecordId, sentSignatures, "failed", message).catch(() => undefined);
+      setResult((current) => ({
+        ...(current ?? {}),
+        sendStatus: "failed",
+        sentSignatures,
+        sendError: message
+      }));
     } finally {
       setBusy(false);
     }
@@ -352,6 +431,11 @@ export default function HomePage() {
               <label>图片 URI</label>
               <input value={form.imageUri} onChange={(event) => update("imageUri", event.target.value)} />
             </div>
+            <div className="field full">
+              <label>前端发送 RPC</label>
+              <input value={form.rpcUrl} onChange={(event) => update("rpcUrl", event.target.value)} />
+              <p className="field-note">签名后由浏览器通过这个 RPC 发送交易；服务端不代签、不代发。</p>
+            </div>
           </div>
 
           <div className="actions">
@@ -394,6 +478,19 @@ export default function HomePage() {
 
           <div className="result">
             <h2>API 输出</h2>
+            {preparedLaunch ? (
+              <div className="sign-box">
+                <div>
+                  <strong>待签交易</strong>
+                  <p className="field-note">
+                    平台 {preparedLaunch.platform}，交易 {preparedLaunch.transactions.length} 笔，服务费{" "}
+                    {preparedLaunch.fee.serviceFeeLamports} lamports，收款地址 {preparedLaunch.fee.feeRecipient}
+                  </p>
+                </div>
+                <button disabled={busy || !walletConnection} onClick={signAndSendPreparedLaunch}>签名并发送</button>
+                {signingStatus ? <p className="field-note full-line">{signingStatus}</p> : null}
+              </div>
+            ) : null}
             {result ? <pre>{JSON.stringify(result, null, 2)}</pre> : <p className="muted">还没有请求结果。</p>}
           </div>
         </div>
