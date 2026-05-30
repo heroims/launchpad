@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { createRequire } from "module";
+
+const require = createRequire(import.meta.url);
 
 describe("protocol SDK imports", () => {
-  it("loads the official pump.fun SDK exports", async () => {
-    const sdk = await import("@pump-fun/pump-sdk");
+  it("loads the official pump.fun SDK exports through the compatible CJS entry", () => {
+    const sdk = require("@pump-fun/pump-sdk");
 
     expect(sdk.PumpSdk).toBeTypeOf("function");
     expect(sdk.OnlinePumpSdk).toBeTypeOf("function");
