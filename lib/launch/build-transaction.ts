@@ -39,7 +39,7 @@ export async function buildLaunchTransaction(input: BuildInput): Promise<BuildTr
 
   const wallet = new PublicKey(draft.walletAddress);
   const recipient = new PublicKey(validation.feeEstimate.feeRecipient || feeRecipient);
-  const adapterOutput = protocolAdapters[draft.platform].buildInstructions(draft, wallet);
+  const adapterOutput = await protocolAdapters[draft.platform].buildInstructions(draft, wallet);
 
   const tx = new Transaction({
     feePayer: wallet,
