@@ -13,6 +13,8 @@ export type SolanaBrowserWalletProvider = {
   publicKey?: WalletPublicKeyLike | null;
   connect?: (options?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey?: WalletPublicKeyLike | null } | void>;
   disconnect?: () => Promise<void> | void;
+  signTransaction?: <T>(transaction: T) => Promise<T>;
+  signAllTransactions?: <T>(transactions: T[]) => Promise<T[]>;
   on?: (event: "accountChanged" | "disconnect", handler: (...args: unknown[]) => void) => void;
   off?: (event: "accountChanged" | "disconnect", handler: (...args: unknown[]) => void) => void;
 };
