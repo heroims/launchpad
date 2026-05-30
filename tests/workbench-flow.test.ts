@@ -1,0 +1,65 @@
+import { describe, expect, it } from "vitest";
+import {
+  formatLamportsAsSol,
+  getDraftForBuild,
+  getDraftForValidation,
+  getLaunchFeeEstimate,
+  makeBuildTransactionPayload
+} from "@/lib/launch/workbench-flow";
+import type { LaunchDraft } from "@/lib/launch/types";
+
+const draft: LaunchDraft = {
+  platform: "pumpfun",
+  walletAddress: "11111111111111111111111111111111",
+  mintPublicKey: "11111111111111111111111111111111",
+  tokenName: "Workbench Token",
+  tokenSymbol: "WORK",
+  tokenMetadata: {
+    description: "A token prepared from the web workbench",
+    imageUri: "https://example.com/work.png"
+  },
+  initialBudgetSol: 1,
+  firstBuy: {
+    enabled: false,
+    amountSol: 0,
+    slippageBps: 100
+  },
+  templateVersion: "v1",
+  platformSpecificParams: {}
+};
+
+describe("workbench launch flow helpers", () => {
+  it("extracts a generated draft for validation", () => {
+    expect(getDraftForValidation({ draft })).toEqual(draft);
+    expect(getDraftForValidation({ recommendation: { draft } })).toEqual(draft);
+  });
+
+  it("only allows validated drafts to be built into transactions", () => {
+    expect(getDraftForBuild({ draft })).toBeNull();
+    expect(getDraftForBuild({ ok: true, normalizedDraft: draft })).toEqual(draft);
+    expect(getDraftForBuild({ validation: { ok: true, normalizedDraft: draft } })).toEqual(draft);
+  });
+
+  it("creates the build-transaction API payload from a validation response", () => {
+    expect(makeBuildTransactionPayload({ ok: true, normalizedDraft: draft }, "idem-workbench")).toEqual({
+      draft,
+      idempotencyKey: "idem-workbench"
+    });
+  });
+
+  it("extracts and formats fee estimates for pre-sign confirmation", () => {
+    const feeEstimate = {
+      serviceFeeLamports: 50_000_000,
+      estimatedPriorityFeeLamports: 2_000_000,
+      estimatedRentLamports: 10_000_000,
+      estimatedPlatformFeeLamports: 0,
+      totalEstimatedLamports: 1_062_000_000,
+      feeRecipient: "11111111111111111111111111111111"
+    };
+
+    expect(getLaunchFeeEstimate({ feeEstimate })).toEqual(feeEstimate);
+    expect(getLaunchFeeEstimate({ validation: { feeEstimate } })).toEqual(feeEstimate);
+    expect(formatLamportsAsSol(50_000_000)).toBe("0.05 SOL");
+    expect(formatLamportsAsSol(1_062_000_000)).toBe("1.062 SOL");
+  });
+});

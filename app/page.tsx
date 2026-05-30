@@ -12,6 +12,13 @@ import {
 } from "@/lib/wallet/browser-wallet";
 import { generateLaunchMintKeypair, restoreLaunchMintKeypair } from "@/lib/wallet/mint-keypair";
 import { getPreparedLaunchResult } from "@/lib/launch/prepared-result";
+import {
+  formatLamportsAsSol,
+  getDraftForBuild,
+  getDraftForValidation,
+  getLaunchFeeEstimate,
+  makeBuildTransactionPayload
+} from "@/lib/launch/workbench-flow";
 import { sendSignedTransactionsSequentially, signLaunchTransactions } from "@/lib/wallet/launch-signing";
 
 type ApiResult = Record<string, unknown> | null;
@@ -171,6 +178,9 @@ export default function HomePage() {
     [form]
   );
   const preparedLaunch = useMemo(() => getPreparedLaunchResult(result), [result]);
+  const draftForValidation = useMemo(() => getDraftForValidation(result), [result]);
+  const draftForBuild = useMemo(() => getDraftForBuild(result), [result]);
+  const currentFeeEstimate = useMemo(() => getLaunchFeeEstimate(result), [result]);
 
   function update(key: keyof typeof form, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -179,7 +189,7 @@ export default function HomePage() {
     }
   }
 
-  async function callApi(path: string, payload = body) {
+  async function callApi(path: string, payload: unknown = body) {
     setBusy(true);
     setSigningStatus("");
     try {
@@ -192,6 +202,29 @@ export default function HomePage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function validateCurrentDraft() {
+    const draft = draftForValidation;
+    if (!draft) {
+      setResult({ error: "请先生成草案，再校验草案。" });
+      return;
+    }
+
+    await callApi("/api/launch/validate", { draft });
+  }
+
+  async function buildCurrentTransaction() {
+    const payload = makeBuildTransactionPayload(result, body.idempotencyKey);
+    if (!payload) {
+      setResult((current) => ({
+        ...(current ?? {}),
+        error: "请先通过草案校验，再构建待签交易。"
+      }));
+      return;
+    }
+
+    await callApi("/api/launch/build-transaction", payload);
   }
 
   async function recordLaunchResult(launchRecordId: string, signatures: string[], status: "sent" | "failed", errorMessage?: string) {
@@ -440,6 +473,8 @@ export default function HomePage() {
 
           <div className="actions">
             <button disabled={busy} onClick={() => callApi("/api/launch/draft")}>生成草案</button>
+            <button className="secondary" disabled={busy || !draftForValidation} onClick={validateCurrentDraft}>校验草案</button>
+            <button className="secondary" disabled={busy || !draftForBuild} onClick={buildCurrentTransaction}>构建待签交易</button>
             <button className="secondary" disabled={busy} onClick={() => callApi("/api/skill/launch/prepare")}>Skill 一键准备</button>
           </div>
           <p className="muted">当前版本返回待签名交易 payload；不会托管私钥或代签。</p>
@@ -478,13 +513,36 @@ export default function HomePage() {
 
           <div className="result">
             <h2>API 输出</h2>
+            {currentFeeEstimate ? (
+              <div className="fee-box">
+                <strong>签名前费用确认</strong>
+                <dl>
+                  <div>
+                    <dt>服务费</dt>
+                    <dd>{formatLamportsAsSol(currentFeeEstimate.serviceFeeLamports)}</dd>
+                  </div>
+                  <div>
+                    <dt>预估总额</dt>
+                    <dd>{formatLamportsAsSol(currentFeeEstimate.totalEstimatedLamports)}</dd>
+                  </div>
+                  <div>
+                    <dt>收款地址</dt>
+                    <dd>{currentFeeEstimate.feeRecipient}</dd>
+                  </div>
+                  <div>
+                    <dt>交易数量</dt>
+                    <dd>{preparedLaunch ? preparedLaunch.transactions.length : "校验后构建"}</dd>
+                  </div>
+                </dl>
+              </div>
+            ) : null}
             {preparedLaunch ? (
               <div className="sign-box">
                 <div>
                   <strong>待签交易</strong>
                   <p className="field-note">
                     平台 {preparedLaunch.platform}，交易 {preparedLaunch.transactions.length} 笔，服务费{" "}
-                    {preparedLaunch.fee.serviceFeeLamports} lamports，收款地址 {preparedLaunch.fee.feeRecipient}
+                    {formatLamportsAsSol(preparedLaunch.fee.serviceFeeLamports)}，收款地址 {preparedLaunch.fee.feeRecipient}
                   </p>
                 </div>
                 <button disabled={busy || !walletConnection} onClick={signAndSendPreparedLaunch}>签名并发送</button>
