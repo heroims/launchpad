@@ -15,15 +15,16 @@ API-first Solana launch workstation built with Next.js App Router.
 
 ## Important adapter boundary
 
-The current `PumpFunAdapter`, `RaydiumLaunchLabAdapter`, and `MeteoraDbcAdapter` isolate the protocol-specific build surface and return signable transaction payloads with service fee insertion. Their internal launch instruction is a deterministic placeholder marker.
+The `PumpFunAdapter`, `RaydiumLaunchLabAdapter`, and `MeteoraDbcAdapter` isolate the protocol-specific build surface and return signable transaction payloads with service fee insertion.
 
-Before mainnet or real devnet pool creation, replace each adapter implementation in `lib/launch/adapters.ts` with the official protocol SDK/IDL instruction builders for:
+`PROTOCOL_SDK_MODE=live` is the default. In live mode:
 
-- `pump.fun`
-- `Raydium LaunchLab`
-- `Meteora DBC`
+- `pump.fun` create-only uses `@pump-fun/pump-sdk` directly and does not require `SOLANA_RPC_URL`.
+- `pump.fun` create-and-buy requires `SOLANA_RPC_URL` for SDK state reads.
+- `Raydium LaunchLab` requires `SOLANA_RPC_URL`, `RAYDIUM_LAUNCHPAD_CONFIG_ID`, and `RAYDIUM_LAUNCHPAD_PLATFORM_ID`.
+- `Meteora DBC` requires `SOLANA_RPC_URL` and `METEORA_DBC_CONFIG_ID`.
 
-The API, validator, fee engine, record flow, and UI are structured so the adapter internals can be swapped without changing public API routes.
+`PROTOCOL_SDK_MODE=dry-run` is retained only for isolated adapter tests and should not be used to produce user-signable launch transactions.
 
 ## Commands
 
@@ -37,6 +38,8 @@ pnpm dev
 ## Environment
 
 Copy `.env.example` to `.env.local` for local development.
+
+The fixed service fee defaults to `0.05 SOL` and the fee recipient defaults to `HpijwaAmevR4rFCP7kA1iTLB4gUKjhAJE6WkwdorMxzD`.
 
 ## API
 

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "crypto";
 import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import { feeRecipient } from "./templates";
-import { protocolAdapters } from "./adapters";
+import { getProtocolSdkMode, protocolAdapters } from "./adapters";
 import { createLaunchRecord, getRecordById, updateLaunchRecord } from "./repository";
 import { validateLaunchDraft } from "./validator";
 import type { BuildTransactionResult, LaunchDraft } from "./types";
@@ -23,6 +23,10 @@ export async function buildLaunchTransaction(input: BuildInput): Promise<BuildTr
   }
 
   const draft = validation.normalizedDraft;
+  if (getProtocolSdkMode() === "dry-run") {
+    throw new Error("Dry-run protocol SDK mode cannot build user-signable launch transactions. Set PROTOCOL_SDK_MODE=live.");
+  }
+
   const existingId = `launch_${hashPayload(input.idempotencyKey).slice(0, 16)}`;
   const existing = getRecordById(existingId);
   if (existing?.unsignedTxHash) {

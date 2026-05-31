@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { protocolAdapters } from "@/lib/launch/adapters";
 import type { LaunchDraft } from "@/lib/launch/types";
 
 const wallet = new PublicKey("11111111111111111111111111111111");
 
-function draft(platform: LaunchDraft["platform"]): LaunchDraft {
+function draft(platform: LaunchDraft["platform"], firstBuyEnabled = true): LaunchDraft {
   return {
     platform,
     walletAddress: wallet.toBase58(),
@@ -19,8 +19,8 @@ function draft(platform: LaunchDraft["platform"]): LaunchDraft {
     },
     initialBudgetSol: 1,
     firstBuy: {
-      enabled: true,
-      amountSol: 0.2,
+      enabled: firstBuyEnabled,
+      amountSol: firstBuyEnabled ? 0.2 : 0,
       slippageBps: 100
     },
     templateVersion: "v1",
@@ -33,14 +33,16 @@ describe("protocol adapters", () => {
     vi.unstubAllEnvs();
   });
 
-  it("defaults to dry-run mode with marker instructions", async () => {
+  it("defaults to live pump.fun create-only SDK instructions instead of dry-run marker transfers", async () => {
     vi.stubEnv("PROTOCOL_SDK_MODE", "");
 
-    const result = await protocolAdapters.pumpfun.buildInstructions(draft("pumpfun"), wallet);
+    const result = await protocolAdapters.pumpfun.buildInstructions(draft("pumpfun", false), wallet);
 
     expect(result.instructions).toHaveLength(1);
+    expect(result.instructions[0].programId.equals(SystemProgram.programId)).toBe(false);
     expect(result.requiredSigners).toContain(wallet.toBase58());
-    expect(result.summary).toContain("Adapter mode: dry-run");
+    expect(result.summary).toContain("Adapter mode: live");
+    expect(result.summary).toContain("SDK method: PumpSdk.createV2Instruction");
   });
 
   it("requires live adapter configuration before using protocol SDKs", async () => {

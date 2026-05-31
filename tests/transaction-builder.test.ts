@@ -1,30 +1,37 @@
-import { describe, expect, it } from "vitest";
-import { Transaction } from "@solana/web3.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { Keypair, SystemInstruction, SystemProgram, Transaction } from "@solana/web3.js";
 import { buildLaunchTransaction } from "@/lib/launch/build-transaction";
 
 describe("buildLaunchTransaction", () => {
-  it("adds the configured service fee transfer and returns a signable transaction", async () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("adds one service fee transfer to the configured recipient after SDK launch instructions", async () => {
+    const wallet = Keypair.generate().publicKey;
+    const mint = Keypair.generate().publicKey;
+
     const result = await buildLaunchTransaction({
       draft: {
-        platform: "raydium_launchlab",
-        walletAddress: "11111111111111111111111111111111",
+        platform: "pumpfun",
+        walletAddress: wallet.toBase58(),
         tokenName: "Launch Token",
         tokenSymbol: "LAUNCH",
         tokenMetadata: {
           description: "A test launch",
           imageUri: "https://example.com/token.png"
         },
-        initialBudgetSol: 2,
-        mintPublicKey: "11111111111111111111111111111111",
+        initialBudgetSol: 1,
+        mintPublicKey: mint.toBase58(),
         firstBuy: {
-          enabled: true,
-          amountSol: 0.2,
+          enabled: false,
+          amountSol: 0,
           slippageBps: 100
         },
         templateVersion: "v1",
         platformSpecificParams: {}
       },
-      idempotencyKey: "idem-1",
+      idempotencyKey: "idem-fee-recipient",
       recentBlockhash: "11111111111111111111111111111111"
     });
 
@@ -33,12 +40,17 @@ describe("buildLaunchTransaction", () => {
     expect(result.transactions).toHaveLength(1);
 
     const tx = Transaction.from(Buffer.from(result.transactions[0].serializedTransaction, "base64"));
-    expect(tx.instructions.length).toBeGreaterThanOrEqual(2);
-    expect(tx.feePayer?.toBase58()).toBe("11111111111111111111111111111111");
+    const serviceFeeInstructions = tx.instructions.filter((instruction) => instruction.programId.equals(SystemProgram.programId));
+    expect(serviceFeeInstructions).toHaveLength(1);
+    const serviceFeeTransfer = SystemInstruction.decodeTransfer(serviceFeeInstructions[0]);
+    expect(serviceFeeTransfer.fromPubkey.toBase58()).toBe(wallet.toBase58());
+    expect(serviceFeeTransfer.toPubkey.toBase58()).toBe("HpijwaAmevR4rFCP7kA1iTLB4gUKjhAJE6WkwdorMxzD");
+    expect(Number(serviceFeeTransfer.lamports)).toBe(50_000_000);
+    expect(tx.feePayer?.toBase58()).toBe(wallet.toBase58());
     expect(result.summary).toContain("Service fee: 50000000 lamports");
-    expect(result.summary).toContain("First buy: 0.2 SOL");
-    expect(result.summary).toContain("SDK method: raydium.launchpad.createLaunchpad(createOnly=false)");
-    expect(result.requiredSigners).toContain("11111111111111111111111111111111");
+    expect(result.summary).toContain("First buy: disabled");
+    expect(result.summary).toContain("SDK method: PumpSdk.createV2Instruction");
+    expect(result.requiredSigners).toContain(mint.toBase58());
   });
 
   it("returns the same launch record for repeated idempotency keys", async () => {
@@ -81,5 +93,30 @@ describe("buildLaunchTransaction", () => {
     });
 
     expect(second.launchRecordId).toBe(first.launchRecordId);
+  });
+
+  it("rejects dry-run adapters for user-signable transaction builds", async () => {
+    vi.stubEnv("PROTOCOL_SDK_MODE", "dry-run");
+
+    await expect(
+      buildLaunchTransaction({
+        draft: {
+          platform: "pumpfun",
+          walletAddress: Keypair.generate().publicKey.toBase58(),
+          tokenName: "Dry Run Token",
+          tokenSymbol: "DRYRUN",
+          tokenMetadata: {
+            description: "A test launch",
+            imageUri: "https://example.com/token.png"
+          },
+          initialBudgetSol: 1,
+          mintPublicKey: Keypair.generate().publicKey.toBase58(),
+          templateVersion: "v1",
+          platformSpecificParams: {}
+        },
+        idempotencyKey: "idem-dry-run-rejected",
+        recentBlockhash: "11111111111111111111111111111111"
+      })
+    ).rejects.toThrow(/Dry-run protocol SDK mode cannot build user-signable launch transactions/);
   });
 });

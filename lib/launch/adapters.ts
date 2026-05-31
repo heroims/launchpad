@@ -35,8 +35,8 @@ type BnConstructor = new (value: string | number) => {
   toString(): string;
 };
 
-function getProtocolSdkMode(): ProtocolSdkMode {
-  const mode = (process.env.PROTOCOL_SDK_MODE || "dry-run").trim().toLowerCase();
+export function getProtocolSdkMode(): ProtocolSdkMode {
+  const mode = (process.env.PROTOCOL_SDK_MODE || "live").trim().toLowerCase();
   if (mode === "dry-run" || mode === "live") return mode;
   throw new Error(`Unsupported PROTOCOL_SDK_MODE: ${process.env.PROTOCOL_SDK_MODE}`);
 }
@@ -135,7 +135,6 @@ function dryRunInstructions(platform: LaunchPlatform, label: string, draft: Laun
 }
 
 async function pumpFunLiveInstructions(draft: LaunchDraft, wallet: PublicKey): Promise<TransactionInstruction[]> {
-  const { SOLANA_RPC_URL } = requireEnv(["SOLANA_RPC_URL"]);
   const sdkModule = nodeRequire("@pump-fun/pump-sdk") as PumpSdkModule;
   const sdk = new sdkModule.PumpSdk();
   const mint = new PublicKey(draft.mintPublicKey);
@@ -158,6 +157,7 @@ async function pumpFunLiveInstructions(draft: LaunchDraft, wallet: PublicKey): P
     ];
   }
 
+  const { SOLANA_RPC_URL } = requireEnv(["SOLANA_RPC_URL"]);
   const connection = new Connection(SOLANA_RPC_URL, "confirmed");
   const onlineSdk = new sdkModule.OnlinePumpSdk(connection);
   const global = await onlineSdk.fetchGlobal();
