@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   connectSolanaWallet,
   disconnectSolanaWallet,
   findSolanaWalletProvider,
+  getWalletDetectionMessage,
   publicKeyToString,
   type BrowserWalletGlobal,
   type DetectedSolanaWallet,
@@ -101,6 +102,13 @@ export default function HomePage() {
   const [walletMessage, setWalletMessage] = useState("");
   const [signingStatus, setSigningStatus] = useState("");
 
+  const detectWalletProvider = useCallback(() => {
+    const detected = findSolanaWalletProvider(window as unknown as BrowserWalletGlobal);
+    setDetectedWallet(detected);
+    setWalletMessage(getWalletDetectionMessage(detected));
+    return detected;
+  }, []);
+
   useEffect(() => {
     const saved = localStorage.getItem("launchpad.aiSecret");
     const config = localStorage.getItem("launchpad.aiConfig");
@@ -118,13 +126,17 @@ export default function HomePage() {
       setForm((current) => ({ ...current, mintPublicKey: restored.publicKey }));
     }
 
-    const detected = findSolanaWalletProvider(window as unknown as BrowserWalletGlobal);
-    setDetectedWallet(detected);
-    if (!detected) {
-      setWalletMessage("未检测到 Phantom 或 Solflare。可以先手动填写钱包地址。");
-      return;
-    }
+    detectWalletProvider();
+    const retryDelays = [500, 1500, 3000];
+    const retryTimers = retryDelays.map((delay) => window.setTimeout(detectWalletProvider, delay));
 
+    return () => {
+      retryTimers.forEach(window.clearTimeout);
+    };
+  }, [detectWalletProvider]);
+
+  useEffect(() => {
+    if (!detectedWallet) return;
     const handleAccountChanged = (nextPublicKey: unknown) => {
       const address = publicKeyToString(nextPublicKey as never);
       if (!address) {
@@ -132,7 +144,7 @@ export default function HomePage() {
         setWalletMessage("钱包账户已断开。");
         return;
       }
-      setWalletConnection({ label: detected.label, address, connected: true });
+      setWalletConnection({ label: detectedWallet.label, address, connected: true });
       setForm((current) => ({ ...current, walletAddress: address }));
       localStorage.setItem("launchpad.walletAddress", address);
     };
@@ -142,14 +154,14 @@ export default function HomePage() {
       setWalletMessage("钱包已断开。");
     };
 
-    detected.provider.on?.("accountChanged", handleAccountChanged);
-    detected.provider.on?.("disconnect", handleDisconnect);
+    detectedWallet.provider.on?.("accountChanged", handleAccountChanged);
+    detectedWallet.provider.on?.("disconnect", handleDisconnect);
 
     return () => {
-      detected.provider.off?.("accountChanged", handleAccountChanged);
-      detected.provider.off?.("disconnect", handleDisconnect);
+      detectedWallet.provider.off?.("accountChanged", handleAccountChanged);
+      detectedWallet.provider.off?.("disconnect", handleDisconnect);
     };
-  }, []);
+  }, [detectedWallet]);
 
   const body = useMemo(
     () => ({
@@ -245,7 +257,16 @@ export default function HomePage() {
 
   async function signAndSendPreparedLaunch() {
     if (!preparedLaunch) return;
-    if (!detectedWallet?.provider || !walletConnection) {
+    const wallet = detectedWallet ?? detectWalletProvider();
+    if (!wallet?.provider) {
+      setSigningStatus(getWalletDetectionMessage(null));
+      return;
+    }
+    if (!wallet.provider.signAndSendTransaction) {
+      setSigningStatus(getWalletDetectionMessage(wallet));
+      return;
+    }
+    if (!walletConnection) {
       setSigningStatus("请先连接钱包再签名发送。");
       return;
     }
@@ -266,7 +287,7 @@ export default function HomePage() {
           transactions: preparedLaunch.transactions,
           requiredSigners: preparedLaunch.requiredSigners,
           mintSecretKeyBase64,
-          wallet: detectedWallet.provider
+          wallet: wallet.provider
         }))
       );
 
@@ -318,7 +339,8 @@ export default function HomePage() {
     setBusy(true);
     setWalletMessage("");
     try {
-      const connection = await connectSolanaWallet(detectedWallet);
+      const wallet = detectedWallet ?? detectWalletProvider();
+      const connection = await connectSolanaWallet(wallet);
       setWalletConnection(connection);
       update("walletAddress", connection.address);
       setWalletMessage(`${connection.label} 已连接。`);
@@ -376,8 +398,8 @@ export default function HomePage() {
                 {walletConnection ? (
                   <button className="secondary" disabled={busy} onClick={disconnectWallet}>断开</button>
                 ) : (
-                  <button disabled={busy || !detectedWallet} onClick={connectWallet}>
-                    {detectedWallet ? `连接 ${detectedWallet.label}` : "未检测到钱包"}
+                  <button disabled={busy} onClick={detectedWallet ? connectWallet : detectWalletProvider}>
+                    {detectedWallet ? `连接 ${detectedWallet.label}` : "重新检测钱包"}
                   </button>
                 )}
               </div>
@@ -532,7 +554,7 @@ export default function HomePage() {
                     {formatLamportsAsSol(preparedLaunch.fee.serviceFeeLamports)}
                   </p>
                 </div>
-                <button disabled={busy || !walletConnection} onClick={signAndSendPreparedLaunch}>签名并发送</button>
+                <button disabled={busy} onClick={signAndSendPreparedLaunch}>签名并发送</button>
                 {signingStatus ? <p className="field-note full-line">{signingStatus}</p> : null}
               </div>
             ) : null}

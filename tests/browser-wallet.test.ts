@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { connectSolanaWallet, disconnectSolanaWallet, findSolanaWalletProvider } from "@/lib/wallet/browser-wallet";
+import { connectSolanaWallet, disconnectSolanaWallet, findSolanaWalletProvider, getWalletDetectionMessage } from "@/lib/wallet/browser-wallet";
 
 function publicKey(value: string) {
   return {
@@ -35,6 +35,10 @@ describe("browser wallet adapter", () => {
 
   it("throws a useful error when no Solana browser wallet exists", async () => {
     await expect(connectSolanaWallet(null)).rejects.toThrow("No Solana browser wallet detected");
+  });
+
+  it("explains when the browser has no injected Solana wallet", () => {
+    expect(getWalletDetectionMessage(null)).toContain("没有检测到 Phantom/Solflare");
   });
 
   it("disconnects wallets that expose a disconnect method", async () => {
