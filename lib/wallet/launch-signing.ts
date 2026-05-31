@@ -2,7 +2,10 @@ import { Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { publicKeyToString, type SolanaBrowserWalletProvider } from "./browser-wallet";
 import type { TransactionPayload } from "@/lib/launch/types";
 
-export type LaunchWalletSigner = Pick<SolanaBrowserWalletProvider, "publicKey" | "signTransaction" | "signAllTransactions">;
+export type LaunchWalletSigner = Pick<
+  SolanaBrowserWalletProvider,
+  "publicKey" | "signTransaction" | "signAllTransactions" | "signAndSendTransaction"
+>;
 
 type SignLaunchTransactionsInput = {
   transactions: TransactionPayload[];
@@ -51,18 +54,26 @@ function assertLocalSignersAvailable(transactions: Transaction[], requiredSigner
   }
 }
 
+function applyLocalSigners(transactions: Transaction[], mintSigner: Keypair | null) {
+  if (!mintSigner) return;
+  for (const transaction of transactions) {
+    if (transactionRequiresSigner(transaction, mintSigner.publicKey)) {
+      transaction.partialSign(mintSigner);
+    }
+  }
+}
+
+function normalizeWalletSignature(result: string | { signature?: string }, index: number): string {
+  if (typeof result === "string") return result;
+  if (typeof result.signature === "string" && result.signature.length > 0) return result.signature;
+  throw new Error(`Wallet did not return a signature for transaction ${index + 1}.`);
+}
+
 export async function signLaunchTransactions(input: SignLaunchTransactionsInput): Promise<Transaction[]> {
   const transactions = input.transactions.map((payload) => transactionFromPayload(payload, input.recentBlockhash));
   const mintSigner = restoreMintSigner(input.mintSecretKeyBase64);
   assertLocalSignersAvailable(transactions, input.requiredSigners, input.wallet, mintSigner);
-
-  if (mintSigner) {
-    for (const transaction of transactions) {
-      if (transactionRequiresSigner(transaction, mintSigner.publicKey)) {
-        transaction.partialSign(mintSigner);
-      }
-    }
-  }
+  applyLocalSigners(transactions, mintSigner);
 
   if (input.wallet.signAllTransactions && transactions.length > 1) {
     return input.wallet.signAllTransactions(transactions);
@@ -79,6 +90,23 @@ export async function signLaunchTransactions(input: SignLaunchTransactionsInput)
   }
 
   throw new Error("Connected wallet does not support transaction signing.");
+}
+
+export async function signAndSendLaunchTransactionsWithWallet(input: SignLaunchTransactionsInput): Promise<string[]> {
+  if (!input.wallet.signAndSendTransaction) {
+    throw new Error("Connected wallet does not support signing and sending transactions.");
+  }
+
+  const transactions = input.transactions.map((payload) => transactionFromPayload(payload, input.recentBlockhash));
+  const mintSigner = restoreMintSigner(input.mintSecretKeyBase64);
+  assertLocalSignersAvailable(transactions, input.requiredSigners, input.wallet, mintSigner);
+  applyLocalSigners(transactions, mintSigner);
+
+  const signatures: string[] = [];
+  for (const [index, transaction] of transactions.entries()) {
+    signatures.push(normalizeWalletSignature(await input.wallet.signAndSendTransaction(transaction), index));
+  }
+  return signatures;
 }
 
 export async function sendSignedTransactionsSequentially(

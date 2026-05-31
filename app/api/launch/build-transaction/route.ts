@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { buildLaunchTransaction } from "@/lib/launch/build-transaction";
+import { resolveBuildRecentBlockhash } from "@/lib/launch/recent-blockhash";
 
 export async function POST(request: Request) {
   try {
@@ -7,7 +8,10 @@ export async function POST(request: Request) {
     const result = await buildLaunchTransaction({
       draft: body.draft,
       idempotencyKey: body.idempotencyKey,
-      recentBlockhash: body.recentBlockhash
+      recentBlockhash: await resolveBuildRecentBlockhash({
+        requestedBlockhash: body.recentBlockhash,
+        rpcUrl: process.env.SOLANA_RPC_URL
+      })
     });
     return NextResponse.json(result);
   } catch (error) {

@@ -21,7 +21,7 @@ import {
   redactFeeRecipientsForDisplay,
   shouldShowFirstBuyFields
 } from "@/lib/launch/workbench-flow";
-import { sendSignedTransactionsSequentially, signLaunchTransactions } from "@/lib/wallet/launch-signing";
+import { signAndSendLaunchTransactionsWithWallet } from "@/lib/wallet/launch-signing";
 
 type ApiResult = Record<string, unknown> | null;
 
@@ -37,7 +37,6 @@ const defaultForm = {
   tokenSymbol: "LAUNCH",
   description: "A token launched through the API-first launch workstation",
   imageUri: "https://example.com/token.png",
-  rpcUrl: process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? "https://api.devnet.solana.com",
   preferredPlatform: "",
   providerType: "openai-compatible",
   baseUrl: "https://api.openai.com/v1",
@@ -259,27 +258,16 @@ export default function HomePage() {
     }
 
     setBusy(true);
-    setSigningStatus("正在获取最新 blockhash...");
+    setSigningStatus("正在请求钱包签名并发送...");
     const sentSignatures: string[] = [];
     try {
-      const { Connection } = await import("@solana/web3.js");
-      const connection = new Connection(form.rpcUrl, "confirmed");
-      const latestBlockhash = await connection.getLatestBlockhash("confirmed");
-
-      setSigningStatus("正在请求钱包签名...");
-      const signedTransactions = await signLaunchTransactions({
-        transactions: preparedLaunch.transactions,
-        requiredSigners: preparedLaunch.requiredSigners,
-        mintSecretKeyBase64,
-        recentBlockhash: latestBlockhash.blockhash,
-        wallet: detectedWallet.provider
-      });
-
-      setSigningStatus("正在发送交易...");
       sentSignatures.push(
-        ...(await sendSignedTransactionsSequentially(signedTransactions, (rawTransaction) =>
-          connection.sendRawTransaction(rawTransaction, { skipPreflight: false })
-        ))
+        ...(await signAndSendLaunchTransactionsWithWallet({
+          transactions: preparedLaunch.transactions,
+          requiredSigners: preparedLaunch.requiredSigners,
+          mintSecretKeyBase64,
+          wallet: detectedWallet.provider
+        }))
       );
 
       await recordLaunchResult(preparedLaunch.launchRecordId, sentSignatures, "sent");
@@ -472,11 +460,6 @@ export default function HomePage() {
               <label>图片 URI</label>
               <input value={form.imageUri} onChange={(event) => update("imageUri", event.target.value)} />
             </div>
-            <div className="field full">
-              <label>前端发送 RPC</label>
-              <input value={form.rpcUrl} onChange={(event) => update("rpcUrl", event.target.value)} />
-              <p className="field-note">签名后由浏览器通过这个 RPC 发送交易；服务端不代签、不代发。</p>
-            </div>
           </div>
 
           <div className="actions">
@@ -485,7 +468,7 @@ export default function HomePage() {
             <button className="secondary" disabled={busy || !draftForBuild} onClick={buildCurrentTransaction}>构建待签交易</button>
             <button className="secondary" disabled={busy} onClick={() => callApi("/api/skill/launch/prepare")}>Skill 一键准备</button>
           </div>
-          <p className="muted">当前版本返回待签名交易 payload；不会托管私钥或代签。</p>
+          <p className="muted">当前版本返回待签名交易 payload；浏览器钱包负责签名和发送，平台不托管私钥或代签。</p>
         </div>
 
         <div className="panel">

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { encodeLaunchMintKeypair } from "@/lib/wallet/mint-keypair";
-import { signLaunchTransactions, sendSignedTransactionsSequentially } from "@/lib/wallet/launch-signing";
+import { signAndSendLaunchTransactionsWithWallet, signLaunchTransactions, sendSignedTransactionsSequentially } from "@/lib/wallet/launch-signing";
 
 const blockhash = "11111111111111111111111111111111";
 
@@ -90,5 +90,39 @@ describe("launch transaction signing", () => {
 
     expect(calls).toEqual([0, 1]);
     expect(signatures).toEqual(["signature-0", "signature-1"]);
+  });
+
+  it("uses the browser wallet to sign and send prepared transactions", async () => {
+    const payer = Keypair.generate();
+    const mint = Keypair.generate();
+    const transaction = new Transaction({ feePayer: payer.publicKey, recentBlockhash: blockhash }).add(
+      new TransactionInstruction({
+        programId: SystemProgram.programId,
+        keys: [
+          { pubkey: payer.publicKey, isSigner: true, isWritable: true },
+          { pubkey: mint.publicKey, isSigner: true, isWritable: true }
+        ],
+        data: Buffer.alloc(0)
+      })
+    );
+    const walletCalls: Transaction[] = [];
+
+    const signatures = await signAndSendLaunchTransactionsWithWallet({
+      transactions: [{ label: "launch", description: "test", serializedTransaction: serializeUnsigned(transaction) }],
+      requiredSigners: [mint.publicKey.toBase58()],
+      mintSecretKeyBase64: encodeLaunchMintKeypair(mint).secretKeyBase64,
+      wallet: {
+        publicKey: payer.publicKey,
+        signAndSendTransaction: async (tx) => {
+          expect(tx.signatures.find((signature) => signature.publicKey.equals(mint.publicKey))?.signature).toBeTruthy();
+          tx.partialSign(payer);
+          walletCalls.push(tx);
+          return { signature: "wallet-signature-0" };
+        }
+      }
+    });
+
+    expect(walletCalls).toHaveLength(1);
+    expect(signatures).toEqual(["wallet-signature-0"]);
   });
 });

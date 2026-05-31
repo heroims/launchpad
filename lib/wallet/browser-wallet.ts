@@ -15,6 +15,7 @@ export type SolanaBrowserWalletProvider = {
   disconnect?: () => Promise<void> | void;
   signTransaction?: <T>(transaction: T) => Promise<T>;
   signAllTransactions?: <T>(transactions: T[]) => Promise<T[]>;
+  signAndSendTransaction?: <T>(transaction: T) => Promise<string | { signature?: string }>;
   on?: (event: "accountChanged" | "disconnect", handler: (...args: unknown[]) => void) => void;
   off?: (event: "accountChanged" | "disconnect", handler: (...args: unknown[]) => void) => void;
 };
