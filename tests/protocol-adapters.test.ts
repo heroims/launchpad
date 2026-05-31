@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
-import { protocolAdapters } from "@/lib/launch/adapters";
+import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
+import { createProtocolAdapters, protocolAdapters } from "@/lib/launch/adapters";
 import type { LaunchDraft } from "@/lib/launch/types";
 
 const wallet = new PublicKey("11111111111111111111111111111111");
@@ -64,5 +64,140 @@ describe("protocol adapters", () => {
     await expect(protocolAdapters.meteora_dbc.buildInstructions(draft("meteora_dbc"), wallet)).rejects.toThrow(
       /Meteora DBC live first buy requires platformSpecificParams.minimumAmountOut/
     );
+  });
+
+  it("builds Raydium LaunchLab create-only instructions from the SDK transaction and forwards extra configs", async () => {
+    vi.stubEnv("PROTOCOL_SDK_MODE", "live");
+    vi.stubEnv("SOLANA_RPC_URL", "http://127.0.0.1:8899");
+    vi.stubEnv("RAYDIUM_LAUNCHPAD_CONFIG_ID", wallet.toBase58());
+    vi.stubEnv("RAYDIUM_LAUNCHPAD_PLATFORM_ID", wallet.toBase58());
+
+    const sdkInstruction = SystemProgram.transfer({
+      fromPubkey: wallet,
+      toPubkey: PublicKey.unique(),
+      lamports: 7
+    });
+    const createLaunchpad = vi.fn(async () => ({
+      transactions: [new Transaction().add(sdkInstruction)]
+    }));
+    const adapters = createProtocolAdapters({
+      loadRaydiumSdk: async () => ({
+        Raydium: {
+          load: vi.fn(async () => ({
+            launchpad: { createLaunchpad }
+          }))
+        },
+        TxVersion: { LEGACY: "legacy" }
+      })
+    });
+    const input = draft("raydium_launchlab", false);
+    input.platformSpecificParams = {
+      migrateType: "amm",
+      extraConfigs: {
+        curType: 1,
+        totalFundRaisingB: "2500000000"
+      }
+    };
+
+    const result = await adapters.raydium_launchlab.buildInstructions(input, wallet);
+
+    expect(result.instructions).toEqual([sdkInstruction]);
+    expect(result.requiredSigners).toContain(wallet.toBase58());
+    expect(createLaunchpad).toHaveBeenCalledWith(
+      expect.objectContaining({
+        createOnly: true,
+        migrateType: "amm",
+        curType: 1,
+        txVersion: "legacy"
+      })
+    );
+    const args = createLaunchpad.mock.calls[0][0] as Record<string, { toString(): string }>;
+    expect(args.buyAmount.toString()).toBe("0");
+    expect(args.totalFundRaisingB.toString()).toBe("2500000000");
+  });
+
+  it("builds Raydium LaunchLab first-buy instructions with SDK buy amount and slippage", async () => {
+    vi.stubEnv("PROTOCOL_SDK_MODE", "live");
+    vi.stubEnv("SOLANA_RPC_URL", "http://127.0.0.1:8899");
+    vi.stubEnv("RAYDIUM_LAUNCHPAD_CONFIG_ID", wallet.toBase58());
+    vi.stubEnv("RAYDIUM_LAUNCHPAD_PLATFORM_ID", wallet.toBase58());
+
+    const sdkInstruction = SystemProgram.transfer({
+      fromPubkey: wallet,
+      toPubkey: PublicKey.unique(),
+      lamports: 11
+    });
+    const createLaunchpad = vi.fn(async () => ({
+      builder: {
+        allInstructions: [sdkInstruction]
+      }
+    }));
+    const adapters = createProtocolAdapters({
+      loadRaydiumSdk: async () => ({
+        Raydium: {
+          load: vi.fn(async () => ({
+            launchpad: { createLaunchpad }
+          }))
+        },
+        TxVersion: { LEGACY: "legacy" }
+      })
+    });
+
+    const result = await adapters.raydium_launchlab.buildInstructions(draft("raydium_launchlab", true), wallet);
+
+    expect(result.instructions).toEqual([sdkInstruction]);
+    expect(createLaunchpad).toHaveBeenCalledWith(expect.objectContaining({ createOnly: false }));
+    const args = createLaunchpad.mock.calls[0][0] as Record<string, { toString(): string }>;
+    expect(args.buyAmount.toString()).toBe("200000000");
+    expect(args.slippage.toString()).toBe("100");
+  });
+
+  it("builds Meteora DBC create-only and first-buy instructions through pool SDK methods", async () => {
+    vi.stubEnv("PROTOCOL_SDK_MODE", "live");
+    vi.stubEnv("SOLANA_RPC_URL", "http://127.0.0.1:8899");
+    vi.stubEnv("METEORA_DBC_CONFIG_ID", wallet.toBase58());
+
+    const createOnlyInstruction = SystemProgram.transfer({
+      fromPubkey: wallet,
+      toPubkey: PublicKey.unique(),
+      lamports: 13
+    });
+    const firstBuyInstruction = SystemProgram.transfer({
+      fromPubkey: wallet,
+      toPubkey: PublicKey.unique(),
+      lamports: 17
+    });
+    const createPool = vi.fn(async () => new Transaction().add(createOnlyInstruction));
+    const createPoolWithFirstBuy = vi.fn(async () => new Transaction().add(firstBuyInstruction));
+    const adapters = createProtocolAdapters({
+      loadMeteoraSdk: async () => ({
+        DynamicBondingCurveClient: class {
+          pool = { createPool, createPoolWithFirstBuy };
+        }
+      })
+    });
+
+    const createOnlyResult = await adapters.meteora_dbc.buildInstructions(draft("meteora_dbc", false), wallet);
+    const firstBuyDraft = draft("meteora_dbc", true);
+    firstBuyDraft.platformSpecificParams = { minimumAmountOut: "123" };
+    const firstBuyResult = await adapters.meteora_dbc.buildInstructions(firstBuyDraft, wallet);
+
+    expect(createOnlyResult.instructions).toEqual([createOnlyInstruction]);
+    expect(firstBuyResult.instructions).toEqual([firstBuyInstruction]);
+    expect(createPool).toHaveBeenCalledWith(expect.objectContaining({ payer: wallet, poolCreator: wallet }));
+    expect(createPoolWithFirstBuy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        firstBuyParam: expect.objectContaining({
+          buyer: wallet,
+          receiver: wallet,
+          referralTokenAccount: null
+        })
+      })
+    );
+    const args = createPoolWithFirstBuy.mock.calls[0][0] as {
+      firstBuyParam: Record<string, { toString(): string }>;
+    };
+    expect(args.firstBuyParam.buyAmount.toString()).toBe("200000000");
+    expect(args.firstBuyParam.minimumAmountOut.toString()).toBe("123");
   });
 });

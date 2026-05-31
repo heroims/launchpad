@@ -35,6 +35,50 @@ type BnConstructor = new (value: string | number) => {
   toString(): string;
 };
 
+type RaydiumSdkModule = {
+  Raydium: {
+    load(config: Record<string, unknown>): Promise<{
+      launchpad: {
+        createLaunchpad(args: Record<string, unknown>): Promise<unknown>;
+      };
+    }>;
+  };
+  TxVersion: {
+    LEGACY: unknown;
+  };
+};
+
+type MeteoraSdkModule = {
+  DynamicBondingCurveClient: {
+    new (connection: Connection, commitment: "confirmed"): {
+      pool: {
+        createPool(params: Record<string, unknown>): Promise<unknown>;
+        createPoolWithFirstBuy(params: Record<string, unknown>): Promise<unknown>;
+      };
+    };
+    create?: (connection: Connection, commitment?: "confirmed") => {
+      pool: {
+        createPool(params: Record<string, unknown>): Promise<unknown>;
+        createPoolWithFirstBuy(params: Record<string, unknown>): Promise<unknown>;
+      };
+    };
+  };
+};
+
+export type ProtocolAdapterDependencies = {
+  createConnection(url: string, commitment: "confirmed"): Connection;
+  loadPumpSdk(): PumpSdkModule;
+  loadRaydiumSdk(): Promise<RaydiumSdkModule>;
+  loadMeteoraSdk(): Promise<MeteoraSdkModule>;
+};
+
+const defaultDependencies: ProtocolAdapterDependencies = {
+  createConnection: (url, commitment) => new Connection(url, commitment),
+  loadPumpSdk: () => nodeRequire("@pump-fun/pump-sdk") as PumpSdkModule,
+  loadRaydiumSdk: () => import("@raydium-io/raydium-sdk-v2") as unknown as Promise<RaydiumSdkModule>,
+  loadMeteoraSdk: () => import("@meteora-ag/dynamic-bonding-curve-sdk") as unknown as Promise<MeteoraSdkModule>
+};
+
 export function getProtocolSdkMode(): ProtocolSdkMode {
   const mode = (process.env.PROTOCOL_SDK_MODE || "live").trim().toLowerCase();
   if (mode === "dry-run" || mode === "live") return mode;
@@ -71,12 +115,33 @@ function integerBn(value: number): InstanceType<BnConstructor> {
   return new BN(Math.round(value).toString()) as InstanceType<BnConstructor>;
 }
 
+function bnFromValue(value: unknown): InstanceType<BnConstructor> {
+  if (value && typeof value === "object" && "toString" in value) {
+    const BN = nodeRequire("bn.js") as BnConstructor;
+    return new BN((value as { toString(): string }).toString()) as InstanceType<BnConstructor>;
+  }
+  if (typeof value === "number") return integerBn(value);
+  const BN = nodeRequire("bn.js") as BnConstructor;
+  return new BN(String(value)) as InstanceType<BnConstructor>;
+}
+
 function metadataUri(draft: LaunchDraft): string {
   return draft.tokenMetadata.metadataUri || draft.tokenMetadata.imageUri;
 }
 
 function boolParam(value: unknown, defaultValue: boolean): boolean {
   return typeof value === "boolean" ? value : defaultValue;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isInstruction(value: unknown): value is TransactionInstruction {
+  return (
+    value instanceof TransactionInstruction ||
+    (isRecord(value) && value.programId instanceof PublicKey && Array.isArray(value.keys) && value.data !== undefined)
+  );
 }
 
 function txInstructions(transaction: unknown): TransactionInstruction[] {
@@ -93,16 +158,56 @@ function collectSdkInstructions(value: unknown): TransactionInstruction[] {
   if (value instanceof Transaction || (typeof value === "object" && Array.isArray((value as Transaction).instructions))) {
     return txInstructions(value);
   }
+  if (isInstruction(value)) return [value];
   if (typeof value === "object") {
     const candidate = value as Record<string, unknown>;
-    return [
+    const transactionInstructions = [
       ...collectSdkInstructions(candidate.transaction),
       ...collectSdkInstructions(candidate.transactions),
       ...collectSdkInstructions(candidate.createPoolWithFirstBuyTx),
       ...collectSdkInstructions(candidate.createConfigTx)
     ];
+    if (transactionInstructions.length > 0) return transactionInstructions;
+
+    const builder = isRecord(candidate.builder) ? candidate.builder : undefined;
+    const builderData = builder && isRecord(builder.AllTxData) ? builder.AllTxData : undefined;
+    return [
+      ...collectSdkInstructions(candidate.instruction),
+      ...collectSdkInstructions(candidate.instructions),
+      ...collectSdkInstructions(candidate.innerTransactions),
+      ...collectSdkInstructions(builder?.allInstructions),
+      ...collectSdkInstructions(builderData?.instructions),
+      ...collectSdkInstructions(builderData?.endInstructions)
+    ];
   }
   return [];
+}
+
+function normalizeRaydiumExtraConfigs(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) return {};
+
+  const bnFields = new Set([
+    "supply",
+    "totalSellA",
+    "totalFundRaisingB",
+    "totalLockedAmount",
+    "cliffPeriod",
+    "unlockPeriod",
+    "shareFeeRate",
+    "platformFeeRate",
+    "platformVestingScale"
+  ]);
+  const publicKeyFields = new Set(["shareFeeReceiver"]);
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, fieldValue]) => fieldValue !== undefined && fieldValue !== null && fieldValue !== "")
+      .map(([fieldName, fieldValue]) => {
+        if (bnFields.has(fieldName)) return [fieldName, bnFromValue(fieldValue)];
+        if (publicKeyFields.has(fieldName)) return [fieldName, new PublicKey(String(fieldValue))];
+        return [fieldName, fieldValue];
+      })
+  );
 }
 
 function markerInstruction(platform: LaunchPlatform, draft: LaunchDraft, wallet: PublicKey): TransactionInstruction {
@@ -134,8 +239,12 @@ function dryRunInstructions(platform: LaunchPlatform, label: string, draft: Laun
   };
 }
 
-async function pumpFunLiveInstructions(draft: LaunchDraft, wallet: PublicKey): Promise<TransactionInstruction[]> {
-  const sdkModule = nodeRequire("@pump-fun/pump-sdk") as PumpSdkModule;
+async function pumpFunLiveInstructions(
+  draft: LaunchDraft,
+  wallet: PublicKey,
+  deps: ProtocolAdapterDependencies
+): Promise<TransactionInstruction[]> {
+  const sdkModule = deps.loadPumpSdk();
   const sdk = new sdkModule.PumpSdk();
   const mint = new PublicKey(draft.mintPublicKey);
   const mayhemMode = boolParam(draft.platformSpecificParams.mayhemMode, false);
@@ -158,7 +267,7 @@ async function pumpFunLiveInstructions(draft: LaunchDraft, wallet: PublicKey): P
   }
 
   const { SOLANA_RPC_URL } = requireEnv(["SOLANA_RPC_URL"]);
-  const connection = new Connection(SOLANA_RPC_URL, "confirmed");
+  const connection = deps.createConnection(SOLANA_RPC_URL, "confirmed");
   const onlineSdk = new sdkModule.OnlinePumpSdk(connection);
   const global = await onlineSdk.fetchGlobal();
   const feeConfig = await onlineSdk.fetchFeeConfig().catch(() => null);
@@ -187,14 +296,18 @@ async function pumpFunLiveInstructions(draft: LaunchDraft, wallet: PublicKey): P
   });
 }
 
-async function raydiumLiveInstructions(draft: LaunchDraft, wallet: PublicKey): Promise<TransactionInstruction[]> {
+async function raydiumLiveInstructions(
+  draft: LaunchDraft,
+  wallet: PublicKey,
+  deps: ProtocolAdapterDependencies
+): Promise<TransactionInstruction[]> {
   const { SOLANA_RPC_URL, RAYDIUM_LAUNCHPAD_CONFIG_ID, RAYDIUM_LAUNCHPAD_PLATFORM_ID } = requireEnv([
     "SOLANA_RPC_URL",
     "RAYDIUM_LAUNCHPAD_CONFIG_ID",
     "RAYDIUM_LAUNCHPAD_PLATFORM_ID"
   ]);
-  const { Raydium, TxVersion } = await import("@raydium-io/raydium-sdk-v2");
-  const connection = new Connection(SOLANA_RPC_URL, "confirmed");
+  const { Raydium, TxVersion } = await deps.loadRaydiumSdk();
+  const connection = deps.createConnection(SOLANA_RPC_URL, "confirmed");
   const raydium = await Raydium.load({
     connection,
     owner: wallet,
@@ -202,6 +315,7 @@ async function raydiumLiveInstructions(draft: LaunchDraft, wallet: PublicKey): P
     disableLoadToken: true
   });
   const buyAmount = solToLamportsBn(draft.firstBuy?.enabled ? draft.firstBuy.amountSol : 0);
+  const raydiumExtraConfigs = normalizeRaydiumExtraConfigs(draft.platformSpecificParams.extraConfigs);
 
   const result = await raydium.launchpad.createLaunchpad({
     configId: new PublicKey(RAYDIUM_LAUNCHPAD_CONFIG_ID),
@@ -215,17 +329,24 @@ async function raydiumLiveInstructions(draft: LaunchDraft, wallet: PublicKey): P
     slippage: integerBn(draft.firstBuy?.slippageBps ?? 0),
     txVersion: TxVersion.LEGACY,
     feePayer: wallet,
-    createOnly: !draft.firstBuy?.enabled
+    createOnly: !draft.firstBuy?.enabled,
+    ...raydiumExtraConfigs
   });
 
   return collectSdkInstructions(result);
 }
 
-async function meteoraLiveInstructions(draft: LaunchDraft, wallet: PublicKey): Promise<TransactionInstruction[]> {
+async function meteoraLiveInstructions(
+  draft: LaunchDraft,
+  wallet: PublicKey,
+  deps: ProtocolAdapterDependencies
+): Promise<TransactionInstruction[]> {
   const { SOLANA_RPC_URL, METEORA_DBC_CONFIG_ID } = requireEnv(["SOLANA_RPC_URL", "METEORA_DBC_CONFIG_ID"]);
-  const { DynamicBondingCurveClient } = await import("@meteora-ag/dynamic-bonding-curve-sdk");
-  const connection = new Connection(SOLANA_RPC_URL, "confirmed");
-  const client = new DynamicBondingCurveClient(connection, "confirmed");
+  const { DynamicBondingCurveClient } = await deps.loadMeteoraSdk();
+  const connection = deps.createConnection(SOLANA_RPC_URL, "confirmed");
+  const client = DynamicBondingCurveClient.create
+    ? DynamicBondingCurveClient.create(connection, "confirmed")
+    : new DynamicBondingCurveClient(connection, "confirmed");
   const createPoolParam = {
     baseMint: new PublicKey(draft.mintPublicKey),
     config: new PublicKey(METEORA_DBC_CONFIG_ID),
@@ -246,7 +367,7 @@ async function meteoraLiveInstructions(draft: LaunchDraft, wallet: PublicKey): P
     );
   }
 
-  const minimumAmountOut = integerBn(Number(draft.platformSpecificParams.minimumAmountOut));
+  const minimumAmountOut = bnFromValue(draft.platformSpecificParams.minimumAmountOut);
   return collectSdkInstructions(
     await client.pool.createPoolWithFirstBuy({
       createPoolParam,
@@ -261,13 +382,18 @@ async function meteoraLiveInstructions(draft: LaunchDraft, wallet: PublicKey): P
   );
 }
 
-async function liveInstructions(platform: LaunchPlatform, draft: LaunchDraft, wallet: PublicKey): Promise<TransactionInstruction[]> {
-  if (platform === "pumpfun") return pumpFunLiveInstructions(draft, wallet);
-  if (platform === "raydium_launchlab") return raydiumLiveInstructions(draft, wallet);
-  return meteoraLiveInstructions(draft, wallet);
+async function liveInstructions(
+  platform: LaunchPlatform,
+  draft: LaunchDraft,
+  wallet: PublicKey,
+  deps: ProtocolAdapterDependencies
+): Promise<TransactionInstruction[]> {
+  if (platform === "pumpfun") return pumpFunLiveInstructions(draft, wallet, deps);
+  if (platform === "raydium_launchlab") return raydiumLiveInstructions(draft, wallet, deps);
+  return meteoraLiveInstructions(draft, wallet, deps);
 }
 
-function adapter(platform: LaunchPlatform, label: string): ProtocolAdapter {
+function adapter(platform: LaunchPlatform, label: string, deps: ProtocolAdapterDependencies): ProtocolAdapter {
   return {
     platform,
     async buildInstructions(draft, wallet) {
@@ -276,7 +402,7 @@ function adapter(platform: LaunchPlatform, label: string): ProtocolAdapter {
 
       const descriptor = getProtocolSdkDescriptor(platform);
       const sdkMethod = getProtocolSdkMethod(platform, !!draft.firstBuy?.enabled);
-      const instructions = await liveInstructions(platform, draft, wallet);
+      const instructions = await liveInstructions(platform, draft, wallet, deps);
       if (instructions.length === 0) {
         throw new Error(`${label} SDK returned no launch instructions.`);
       }
@@ -299,8 +425,15 @@ function adapter(platform: LaunchPlatform, label: string): ProtocolAdapter {
   };
 }
 
-export const protocolAdapters: Record<LaunchPlatform, ProtocolAdapter> = {
-  pumpfun: adapter("pumpfun", "pump.fun"),
-  raydium_launchlab: adapter("raydium_launchlab", "Raydium LaunchLab"),
-  meteora_dbc: adapter("meteora_dbc", "Meteora DBC")
-};
+export function createProtocolAdapters(
+  overrides: Partial<ProtocolAdapterDependencies> = {}
+): Record<LaunchPlatform, ProtocolAdapter> {
+  const deps: ProtocolAdapterDependencies = { ...defaultDependencies, ...overrides };
+  return {
+    pumpfun: adapter("pumpfun", "pump.fun", deps),
+    raydium_launchlab: adapter("raydium_launchlab", "Raydium LaunchLab", deps),
+    meteora_dbc: adapter("meteora_dbc", "Meteora DBC", deps)
+  };
+}
+
+export const protocolAdapters: Record<LaunchPlatform, ProtocolAdapter> = createProtocolAdapters();
