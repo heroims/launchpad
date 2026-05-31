@@ -93,6 +93,9 @@ describe("buildLaunchTransaction", () => {
     });
 
     expect(second.launchRecordId).toBe(first.launchRecordId);
+    expect(second.transactions).toHaveLength(1);
+    expect(second.transactions[0].serializedTransaction).toBe(first.transactions[0].serializedTransaction);
+    expect(second.requiredSigners).toEqual(first.requiredSigners);
   });
 
   it("rejects dry-run adapters for user-signable transaction builds", async () => {

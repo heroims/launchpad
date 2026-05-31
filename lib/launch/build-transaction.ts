@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "crypto";
 import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import { feeRecipient } from "./templates";
 import { getProtocolSdkMode, protocolAdapters } from "./adapters";
-import { createLaunchRecord, getRecordById, updateLaunchRecord } from "./repository";
+import { createLaunchRecord, getBuildPayload, getRecordById, storeBuildPayload, updateLaunchRecord } from "./repository";
 import { validateLaunchDraft } from "./validator";
 import type { BuildTransactionResult, LaunchDraft } from "./types";
 
@@ -30,13 +30,14 @@ export async function buildLaunchTransaction(input: BuildInput): Promise<BuildTr
   const existingId = `launch_${hashPayload(input.idempotencyKey).slice(0, 16)}`;
   const existing = getRecordById(existingId);
   if (existing?.unsignedTxHash) {
+    const cachedPayload = getBuildPayload(existing.id);
     return {
       launchRecordId: existing.id,
       status: existing.status,
       platform: existing.platform,
-      transactions: [],
-      requiredSigners: [],
-      summary: ["Idempotent request already built. Fetch launch record for stored status."],
+      transactions: cachedPayload?.transactions ?? [],
+      requiredSigners: cachedPayload?.requiredSigners ?? [],
+      summary: cachedPayload?.summary ?? ["Idempotent request already built, but unsigned transaction payload is no longer cached."],
       fee: validation.feeEstimate
     };
   }
@@ -62,6 +63,19 @@ export async function buildLaunchTransaction(input: BuildInput): Promise<BuildTr
   const serializedTransaction = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
   const unsignedTxHash = hashPayload(serializedTransaction);
 
+  const transactions = [
+    {
+      label: "launch-and-service-fee",
+      description: "Unsigned transaction containing launch instructions and service fee transfer.",
+      serializedTransaction
+    }
+  ];
+  const summary = [
+    ...adapterOutput.summary,
+    `Service fee: ${validation.feeEstimate.serviceFeeLamports} lamports`,
+    "Fee recipient: configured"
+  ];
+
   const record = createLaunchRecord({
     id: existingId || `launch_${randomUUID().replaceAll("-", "").slice(0, 16)}`,
     walletAddress: draft.walletAddress,
@@ -81,24 +95,19 @@ export async function buildLaunchTransaction(input: BuildInput): Promise<BuildTr
   });
 
   updateLaunchRecord(record.id, { unsignedTxHash, status: "transaction_built" });
+  storeBuildPayload(record.id, {
+    transactions,
+    requiredSigners: adapterOutput.requiredSigners,
+    summary
+  });
 
   return {
     launchRecordId: record.id,
     status: "transaction_built",
     platform: draft.platform,
-    transactions: [
-      {
-        label: "launch-and-service-fee",
-        description: "Unsigned transaction containing launch instructions and service fee transfer.",
-        serializedTransaction
-      }
-    ],
+    transactions,
     requiredSigners: adapterOutput.requiredSigners,
-    summary: [
-      ...adapterOutput.summary,
-      `Service fee: ${validation.feeEstimate.serviceFeeLamports} lamports`,
-      "Fee recipient: configured"
-    ],
+    summary,
     fee: validation.feeEstimate
   };
 }
