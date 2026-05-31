@@ -2,6 +2,7 @@ import { createRequire } from "module";
 import { Connection, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { NATIVE_MINT } from "@solana/spl-token";
 import { getProtocolSdkDescriptor, getProtocolSdkMethod } from "./protocol-sdks";
+import { resolveSolanaRpcUrl } from "./rpc";
 import type { LaunchDraft, LaunchPlatform } from "./types";
 
 const nodeRequire = createRequire(import.meta.url);
@@ -36,6 +37,15 @@ type BnConstructor = new (value: string | number) => {
 };
 
 type RaydiumSdkModule = {
+  LAUNCHPAD_CONFIG?: PublicKey;
+  LAUNCHPAD_PLATFORM?: PublicKey;
+  LAUNCHPAD_PROGRAM?: PublicKey;
+  getPdaLaunchpadConfigId?: (
+    programId: PublicKey,
+    mintB: PublicKey,
+    curveType: number,
+    index: number
+  ) => { publicKey: PublicKey };
   Raydium: {
     load(config: Record<string, unknown>): Promise<{
       launchpad: {
@@ -133,6 +143,11 @@ function boolParam(value: unknown, defaultValue: boolean): boolean {
   return typeof value === "boolean" ? value : defaultValue;
 }
 
+function optionalPublicKeyEnv(name: string): PublicKey | undefined {
+  const value = process.env[name]?.trim();
+  return value ? new PublicKey(value) : undefined;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -210,6 +225,23 @@ function normalizeRaydiumExtraConfigs(value: unknown): Record<string, unknown> {
   );
 }
 
+function resolveRaydiumConfigId(sdk: RaydiumSdkModule): PublicKey {
+  const override = optionalPublicKeyEnv("RAYDIUM_LAUNCHPAD_CONFIG_ID");
+  if (override) return override;
+  if (sdk.LAUNCHPAD_CONFIG) return sdk.LAUNCHPAD_CONFIG;
+  if (sdk.LAUNCHPAD_PROGRAM && sdk.getPdaLaunchpadConfigId) {
+    return sdk.getPdaLaunchpadConfigId(sdk.LAUNCHPAD_PROGRAM, NATIVE_MINT, 0, 0).publicKey;
+  }
+
+  throw new Error(
+    "Raydium LaunchLab configId could not be resolved from SDK defaults. Set RAYDIUM_LAUNCHPAD_CONFIG_ID."
+  );
+}
+
+function resolveRaydiumPlatformId(sdk: RaydiumSdkModule): PublicKey | undefined {
+  return optionalPublicKeyEnv("RAYDIUM_LAUNCHPAD_PLATFORM_ID") ?? sdk.LAUNCHPAD_PLATFORM;
+}
+
 function markerInstruction(platform: LaunchPlatform, draft: LaunchDraft, wallet: PublicKey): TransactionInstruction {
   const markerLamports = 1;
   const seed = `${platform}:${draft.tokenSymbol}:${draft.templateVersion}:${draft.mintPublicKey}`;
@@ -266,8 +298,7 @@ async function pumpFunLiveInstructions(
     ];
   }
 
-  const { SOLANA_RPC_URL } = requireEnv(["SOLANA_RPC_URL"]);
-  const connection = deps.createConnection(SOLANA_RPC_URL, "confirmed");
+  const connection = deps.createConnection(resolveSolanaRpcUrl(), "confirmed");
   const onlineSdk = new sdkModule.OnlinePumpSdk(connection);
   const global = await onlineSdk.fetchGlobal();
   const feeConfig = await onlineSdk.fetchFeeConfig().catch(() => null);
@@ -301,13 +332,9 @@ async function raydiumLiveInstructions(
   wallet: PublicKey,
   deps: ProtocolAdapterDependencies
 ): Promise<TransactionInstruction[]> {
-  const { SOLANA_RPC_URL, RAYDIUM_LAUNCHPAD_CONFIG_ID, RAYDIUM_LAUNCHPAD_PLATFORM_ID } = requireEnv([
-    "SOLANA_RPC_URL",
-    "RAYDIUM_LAUNCHPAD_CONFIG_ID",
-    "RAYDIUM_LAUNCHPAD_PLATFORM_ID"
-  ]);
-  const { Raydium, TxVersion } = await deps.loadRaydiumSdk();
-  const connection = deps.createConnection(SOLANA_RPC_URL, "confirmed");
+  const sdk = await deps.loadRaydiumSdk();
+  const { Raydium, TxVersion } = sdk;
+  const connection = deps.createConnection(resolveSolanaRpcUrl(), "confirmed");
   const raydium = await Raydium.load({
     connection,
     owner: wallet,
@@ -316,10 +343,11 @@ async function raydiumLiveInstructions(
   });
   const buyAmount = solToLamportsBn(draft.firstBuy?.enabled ? draft.firstBuy.amountSol : 0);
   const raydiumExtraConfigs = normalizeRaydiumExtraConfigs(draft.platformSpecificParams.extraConfigs);
+  const platformId = resolveRaydiumPlatformId(sdk);
 
   const result = await raydium.launchpad.createLaunchpad({
-    configId: new PublicKey(RAYDIUM_LAUNCHPAD_CONFIG_ID),
-    platformId: new PublicKey(RAYDIUM_LAUNCHPAD_PLATFORM_ID),
+    configId: resolveRaydiumConfigId(sdk),
+    ...(platformId ? { platformId } : {}),
     mintA: new PublicKey(draft.mintPublicKey),
     name: draft.tokenName,
     symbol: draft.tokenSymbol,
@@ -341,9 +369,9 @@ async function meteoraLiveInstructions(
   wallet: PublicKey,
   deps: ProtocolAdapterDependencies
 ): Promise<TransactionInstruction[]> {
-  const { SOLANA_RPC_URL, METEORA_DBC_CONFIG_ID } = requireEnv(["SOLANA_RPC_URL", "METEORA_DBC_CONFIG_ID"]);
+  const { METEORA_DBC_CONFIG_ID } = requireEnv(["METEORA_DBC_CONFIG_ID"]);
   const { DynamicBondingCurveClient } = await deps.loadMeteoraSdk();
-  const connection = deps.createConnection(SOLANA_RPC_URL, "confirmed");
+  const connection = deps.createConnection(resolveSolanaRpcUrl(), "confirmed");
   const client = DynamicBondingCurveClient.create
     ? DynamicBondingCurveClient.create(connection, "confirmed")
     : new DynamicBondingCurveClient(connection, "confirmed");

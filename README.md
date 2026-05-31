@@ -20,9 +20,11 @@ The `PumpFunAdapter`, `RaydiumLaunchLabAdapter`, and `MeteoraDbcAdapter` isolate
 `PROTOCOL_SDK_MODE=live` is the default. In live mode:
 
 - `pump.fun` create-only uses `@pump-fun/pump-sdk` directly and does not require `SOLANA_RPC_URL`.
-- `pump.fun` create-and-buy requires `SOLANA_RPC_URL` for SDK state reads.
-- `Raydium LaunchLab` requires `SOLANA_RPC_URL`, `RAYDIUM_LAUNCHPAD_CONFIG_ID`, and `RAYDIUM_LAUNCHPAD_PLATFORM_ID`.
-- `Meteora DBC` requires `SOLANA_RPC_URL` and `METEORA_DBC_CONFIG_ID`.
+- `pump.fun` create-and-buy uses the server-side Solana RPC for SDK state reads.
+- `Raydium LaunchLab` uses the server-side Solana RPC and defaults `configId` / `platformId` from `@raydium-io/raydium-sdk-v2`.
+- `Meteora DBC` uses the server-side Solana RPC and requires `METEORA_DBC_CONFIG_ID`.
+
+The server-side Solana RPC defaults to `https://api.mainnet-beta.solana.com`. Set `SOLANA_RPC_URL` only when you want to override it with a private RPC, devnet RPC, or localnet RPC. Set `RAYDIUM_LAUNCHPAD_CONFIG_ID` / `RAYDIUM_LAUNCHPAD_PLATFORM_ID` only when you need to override the SDK defaults.
 
 `PROTOCOL_SDK_MODE=dry-run` is retained only for isolated adapter tests and should not be used to produce user-signable launch transactions.
 

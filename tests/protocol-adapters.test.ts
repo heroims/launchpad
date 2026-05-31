@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
+import { PublicKey, SystemProgram, Transaction, type Connection } from "@solana/web3.js";
 import { createProtocolAdapters, protocolAdapters } from "@/lib/launch/adapters";
 import type { LaunchDraft } from "@/lib/launch/types";
 
@@ -45,14 +45,81 @@ describe("protocol adapters", () => {
     expect(result.summary).toContain("SDK method: PumpSdk.createV2Instruction");
   });
 
-  it("requires live adapter configuration before using protocol SDKs", async () => {
+  it("uses the default server-side Solana RPC URL for live Raydium builds when env is absent", async () => {
     vi.stubEnv("PROTOCOL_SDK_MODE", "live");
     vi.stubEnv("SOLANA_RPC_URL", "");
     vi.stubEnv("RAYDIUM_LAUNCHPAD_CONFIG_ID", "");
     vi.stubEnv("RAYDIUM_LAUNCHPAD_PLATFORM_ID", "");
 
-    await expect(protocolAdapters.raydium_launchlab.buildInstructions(draft("raydium_launchlab"), wallet)).rejects.toThrow(
-      /Missing live adapter config: SOLANA_RPC_URL, RAYDIUM_LAUNCHPAD_CONFIG_ID, RAYDIUM_LAUNCHPAD_PLATFORM_ID/
+    const createConnection = vi.fn((url: string) => ({ rpcEndpoint: url }) as unknown as Connection);
+    const createLaunchpad = vi.fn(async () => ({
+      transactions: [
+        new Transaction().add(
+          SystemProgram.transfer({
+            fromPubkey: wallet,
+            toPubkey: PublicKey.unique(),
+            lamports: 3
+          })
+        )
+      ]
+    }));
+    const adapters = createProtocolAdapters({
+      createConnection,
+      loadRaydiumSdk: async () => ({
+        LAUNCHPAD_CONFIG: PublicKey.unique(),
+        LAUNCHPAD_PLATFORM: PublicKey.unique(),
+        Raydium: {
+          load: vi.fn(async () => ({
+            launchpad: { createLaunchpad }
+          }))
+        },
+        TxVersion: { LEGACY: "legacy" }
+      })
+    });
+
+    await expect(adapters.raydium_launchlab.buildInstructions(draft("raydium_launchlab"), wallet)).resolves.toEqual(
+      expect.objectContaining({ summary: expect.arrayContaining(["Adapter mode: live"]) })
+    );
+    expect(createConnection).toHaveBeenCalledWith("https://api.mainnet-beta.solana.com", "confirmed");
+  });
+
+  it("uses Raydium LaunchLab SDK default config and platform ids when overrides are absent", async () => {
+    vi.stubEnv("PROTOCOL_SDK_MODE", "live");
+    vi.stubEnv("SOLANA_RPC_URL", "http://127.0.0.1:8899");
+    vi.stubEnv("RAYDIUM_LAUNCHPAD_CONFIG_ID", "");
+    vi.stubEnv("RAYDIUM_LAUNCHPAD_PLATFORM_ID", "");
+
+    const defaultConfigId = PublicKey.unique();
+    const defaultPlatformId = PublicKey.unique();
+    const sdkInstruction = SystemProgram.transfer({
+      fromPubkey: wallet,
+      toPubkey: PublicKey.unique(),
+      lamports: 5
+    });
+    const createLaunchpad = vi.fn(async () => ({
+      transactions: [new Transaction().add(sdkInstruction)]
+    }));
+    const adapters = createProtocolAdapters({
+      loadRaydiumSdk: async () => ({
+        LAUNCHPAD_CONFIG: defaultConfigId,
+        LAUNCHPAD_PLATFORM: defaultPlatformId,
+        Raydium: {
+          load: vi.fn(async () => ({
+            launchpad: { createLaunchpad }
+          }))
+        },
+        TxVersion: { LEGACY: "legacy" }
+      })
+    });
+
+    const result = await adapters.raydium_launchlab.buildInstructions(draft("raydium_launchlab", false), wallet);
+
+    expect(result.instructions).toEqual([sdkInstruction]);
+    expect(createLaunchpad).toHaveBeenCalledWith(
+      expect.objectContaining({
+        configId: defaultConfigId,
+        platformId: defaultPlatformId
+      })
     );
   });
 
