@@ -79,3 +79,7 @@ export function formatLamportsAsSol(lamports: number): string {
   const sol = lamports / LAMPORTS_PER_SOL;
   return `${Number(sol.toFixed(9)).toString()} SOL`;
 }
+
+export function shouldShowFirstBuyFields(firstBuyEnabled: string): boolean {
+  return firstBuyEnabled === "true";
+}

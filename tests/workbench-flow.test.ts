@@ -4,7 +4,8 @@ import {
   getDraftForBuild,
   getDraftForValidation,
   getLaunchFeeEstimate,
-  makeBuildTransactionPayload
+  makeBuildTransactionPayload,
+  shouldShowFirstBuyFields
 } from "@/lib/launch/workbench-flow";
 import type { LaunchDraft } from "@/lib/launch/types";
 
@@ -61,5 +62,10 @@ describe("workbench launch flow helpers", () => {
     expect(getLaunchFeeEstimate({ validation: { feeEstimate } })).toEqual(feeEstimate);
     expect(formatLamportsAsSol(50_000_000)).toBe("0.05 SOL");
     expect(formatLamportsAsSol(1_062_000_000)).toBe("1.062 SOL");
+  });
+
+  it("only shows first-buy amount fields when first buy is enabled", () => {
+    expect(shouldShowFirstBuyFields("false")).toBe(false);
+    expect(shouldShowFirstBuyFields("true")).toBe(true);
   });
 });

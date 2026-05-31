@@ -17,7 +17,8 @@ import {
   getDraftForBuild,
   getDraftForValidation,
   getLaunchFeeEstimate,
-  makeBuildTransactionPayload
+  makeBuildTransactionPayload,
+  shouldShowFirstBuyFields
 } from "@/lib/launch/workbench-flow";
 import { sendSignedTransactionsSequentially, signLaunchTransactions } from "@/lib/wallet/launch-signing";
 
@@ -181,6 +182,7 @@ export default function HomePage() {
   const draftForValidation = useMemo(() => getDraftForValidation(result), [result]);
   const draftForBuild = useMemo(() => getDraftForBuild(result), [result]);
   const currentFeeEstimate = useMemo(() => getLaunchFeeEstimate(result), [result]);
+  const showFirstBuyFields = shouldShowFirstBuyFields(form.firstBuyEnabled);
 
   function update(key: keyof typeof form, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -426,27 +428,31 @@ export default function HomePage() {
                 <option value="true">创建并首买</option>
               </select>
             </div>
-            <div className="field">
-              <label>首买 SOL</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.firstBuyAmountSol}
-                onChange={(event) => update("firstBuyAmountSol", event.target.value)}
-              />
-            </div>
-            <div className="field">
-              <label>首买滑点 bps</label>
-              <input
-                type="number"
-                min="0"
-                max="5000"
-                step="1"
-                value={form.firstBuySlippageBps}
-                onChange={(event) => update("firstBuySlippageBps", event.target.value)}
-              />
-            </div>
+            {showFirstBuyFields ? (
+              <>
+                <div className="field">
+                  <label>首买 SOL</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.firstBuyAmountSol}
+                    onChange={(event) => update("firstBuyAmountSol", event.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label>首买滑点 bps</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="5000"
+                    step="1"
+                    value={form.firstBuySlippageBps}
+                    onChange={(event) => update("firstBuySlippageBps", event.target.value)}
+                  />
+                </div>
+              </>
+            ) : null}
             <div className="field">
               <label>目标平台</label>
               <select value={form.preferredPlatform} onChange={(event) => update("preferredPlatform", event.target.value)}>
