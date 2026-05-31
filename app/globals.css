@@ -1,21 +1,21 @@
 :root {
-  color-scheme: dark;
-  --background: #070908;
-  --foreground: #edf7f2;
-  --muted: #8da197;
-  --muted-strong: #b8c8c0;
-  --line: rgba(143, 177, 163, 0.2);
-  --line-strong: rgba(118, 255, 205, 0.38);
-  --panel: rgba(12, 17, 15, 0.86);
-  --panel-raised: rgba(17, 25, 22, 0.92);
-  --input: rgba(3, 7, 6, 0.76);
-  --accent: #39f2b3;
-  --accent-strong: #86ffd5;
-  --accent-ink: #021713;
-  --cyan: #73e9ff;
-  --amber: #f8c45c;
-  --danger: #ff6f7d;
-  --shadow: rgba(0, 0, 0, 0.46);
+  color-scheme: light;
+  --background: #f4f7fb;
+  --foreground: #132033;
+  --muted: #697789;
+  --muted-strong: #3d4b5f;
+  --line: #d8e2ef;
+  --line-strong: #8bb8ff;
+  --panel: rgba(255, 255, 255, 0.88);
+  --panel-solid: #ffffff;
+  --input: #ffffff;
+  --accent: #245cff;
+  --accent-strong: #173fd0;
+  --accent-soft: #edf3ff;
+  --cyan: #00a7c4;
+  --amber: #b26b00;
+  --danger: #b42318;
+  --shadow: rgba(35, 52, 74, 0.12);
 }
 
 * {
@@ -30,12 +30,14 @@ body {
   min-height: 100vh;
   margin: 0;
   background:
-    linear-gradient(90deg, rgba(115, 233, 255, 0.04) 1px, transparent 1px),
-    linear-gradient(0deg, rgba(57, 242, 179, 0.035) 1px, transparent 1px),
-    linear-gradient(135deg, #080a09 0%, #0b1512 52%, #070908 100%);
-  background-size: 44px 44px, 44px 44px, auto;
+    radial-gradient(circle at 10% 0%, rgba(36, 92, 255, 0.12), transparent 30%),
+    radial-gradient(circle at 96% 12%, rgba(0, 167, 196, 0.14), transparent 26%),
+    linear-gradient(90deg, rgba(34, 52, 78, 0.055) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(34, 52, 78, 0.045) 1px, transparent 1px),
+    linear-gradient(135deg, #fbfdff 0%, #f1f5fb 52%, #edf3f9 100%);
+  background-size: auto, auto, 42px 42px, 42px 42px, auto;
   color: var(--foreground);
-  font-family: "IBM Plex Sans", "Avenir Next", "DIN Alternate", "Helvetica Neue", sans-serif;
+  font-family: "Avenir Next", "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
 body::before {
@@ -43,10 +45,9 @@ body::before {
   inset: 0;
   z-index: -1;
   background:
-    repeating-linear-gradient(90deg, transparent 0 7px, rgba(255, 255, 255, 0.018) 7px 8px),
-    repeating-linear-gradient(0deg, transparent 0 11px, rgba(57, 242, 179, 0.018) 11px 12px);
+    linear-gradient(120deg, rgba(255, 255, 255, 0.72), transparent 34%),
+    repeating-linear-gradient(90deg, transparent 0 9px, rgba(36, 92, 255, 0.025) 9px 10px);
   content: "";
-  mask-image: linear-gradient(to bottom, black 0%, transparent 82%);
   pointer-events: none;
 }
 
@@ -59,11 +60,11 @@ textarea {
 
 button {
   min-height: 42px;
-  border: 1px solid rgba(134, 255, 213, 0.58);
+  border: 1px solid rgba(23, 63, 208, 0.18);
   border-radius: 6px;
-  background: linear-gradient(180deg, var(--accent-strong), var(--accent));
-  box-shadow: 0 0 0 1px rgba(57, 242, 179, 0.18), 0 12px 28px rgba(57, 242, 179, 0.14);
-  color: var(--accent-ink);
+  background: linear-gradient(180deg, #3c78ff, var(--accent));
+  box-shadow: 0 9px 22px rgba(36, 92, 255, 0.18);
+  color: #ffffff;
   cursor: pointer;
   font-weight: 800;
   padding: 0 16px;
@@ -72,28 +73,32 @@ button {
 }
 
 button:hover:not(:disabled) {
-  box-shadow: 0 0 0 1px rgba(115, 233, 255, 0.28), 0 16px 36px rgba(57, 242, 179, 0.22);
-  filter: saturate(1.08);
+  border-color: rgba(23, 63, 208, 0.28);
+  box-shadow: 0 12px 30px rgba(36, 92, 255, 0.24);
+  filter: saturate(1.05);
   transform: translateY(-1px);
 }
 
 button.secondary {
-  border-color: rgba(141, 161, 151, 0.32);
-  background: rgba(18, 27, 24, 0.92);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border-color: var(--line);
+  background: #ffffff;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8), 0 8px 20px rgba(35, 52, 74, 0.06);
   color: var(--muted-strong);
 }
 
 button.secondary:hover:not(:disabled) {
-  border-color: rgba(115, 233, 255, 0.54);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 28px rgba(115, 233, 255, 0.08);
-  color: var(--foreground);
+  border-color: rgba(36, 92, 255, 0.32);
+  box-shadow: 0 10px 24px rgba(36, 92, 255, 0.12);
+  color: var(--accent-strong);
 }
 
 button:disabled {
+  border-color: #d9e3ef;
+  background: #e8eef6;
   box-shadow: none;
+  color: #8a97aa;
   cursor: not-allowed;
-  opacity: 0.45;
+  opacity: 1;
   transform: none;
 }
 
@@ -113,15 +118,15 @@ textarea {
 
 input::placeholder,
 textarea::placeholder {
-  color: rgba(184, 200, 192, 0.46);
+  color: rgba(105, 119, 137, 0.62);
 }
 
 input:focus,
 select:focus,
 textarea:focus {
-  border-color: rgba(115, 233, 255, 0.72);
-  background: rgba(4, 11, 9, 0.92);
-  box-shadow: 0 0 0 3px rgba(115, 233, 255, 0.1);
+  border-color: rgba(36, 92, 255, 0.52);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(36, 92, 255, 0.11);
 }
 
 textarea {
@@ -141,18 +146,19 @@ textarea {
   gap: 20px;
   align-items: end;
   margin-bottom: 22px;
-  border: 1px solid var(--line);
-  border-top: 2px solid var(--line-strong);
+  border: 1px solid rgba(216, 226, 239, 0.82);
+  border-top: 3px solid var(--line-strong);
   border-radius: 8px;
-  background: linear-gradient(180deg, rgba(14, 22, 19, 0.92), rgba(9, 14, 12, 0.82));
-  box-shadow: 0 24px 70px var(--shadow);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 251, 255, 0.88));
+  box-shadow: 0 24px 70px rgba(35, 52, 74, 0.11);
   padding: 18px;
+  backdrop-filter: blur(14px);
 }
 
 .brand h1 {
   margin: 0;
   max-width: 780px;
-  color: var(--foreground);
+  color: #111827;
   font-size: clamp(28px, 4vw, 54px);
   font-weight: 900;
   letter-spacing: 0;
@@ -181,25 +187,26 @@ textarea {
 .panel {
   position: relative;
   overflow: hidden;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(216, 226, 239, 0.88);
   border-radius: 8px;
   background: var(--panel);
-  box-shadow: 0 22px 56px var(--shadow);
+  box-shadow: 0 18px 50px var(--shadow);
   padding: 18px;
+  backdrop-filter: blur(14px);
 }
 
 .panel::before {
   position: absolute;
   inset: 0 0 auto;
-  height: 2px;
+  height: 3px;
   background: linear-gradient(90deg, var(--accent), var(--cyan), transparent);
   content: "";
 }
 
 .panel h2 {
   margin: 0 0 16px;
-  color: var(--foreground);
-  font-family: "Berkeley Mono", "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  color: #1f2a3d;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 13px;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -224,7 +231,7 @@ textarea {
 
 .field label {
   color: var(--muted-strong);
-  font-family: "Berkeley Mono", "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.04em;
@@ -248,8 +255,8 @@ textarea {
 }
 
 .wallet-pill {
-  border-color: rgba(57, 242, 179, 0.38);
-  background: rgba(57, 242, 179, 0.12);
+  border-color: rgba(36, 92, 255, 0.22);
+  background: rgba(36, 92, 255, 0.08);
   color: var(--accent-strong);
   max-width: 260px;
   overflow: hidden;
@@ -272,11 +279,11 @@ textarea {
 .result pre {
   max-height: 430px;
   overflow: auto;
-  border: 1px solid rgba(141, 161, 151, 0.22);
+  border: 1px solid #dce6f2;
   border-radius: 6px;
-  background: #030605;
-  color: #d9fff2;
-  font-family: "Berkeley Mono", "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  background: #f8fbff;
+  color: #20304a;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 12px;
   line-height: 1.5;
   padding: 14px;
@@ -284,10 +291,10 @@ textarea {
 
 .fee-box,
 .sign-box {
-  border: 1px solid rgba(57, 242, 179, 0.24);
+  border: 1px solid rgba(36, 92, 255, 0.18);
   border-left: 3px solid var(--accent);
   border-radius: 6px;
-  background: linear-gradient(180deg, rgba(20, 33, 29, 0.92), rgba(10, 17, 15, 0.88));
+  background: linear-gradient(180deg, #f7faff, #eef5ff);
   margin-bottom: 12px;
   padding: 13px;
 }
@@ -297,7 +304,7 @@ textarea {
   display: block;
   margin-bottom: 10px;
   color: var(--accent-strong);
-  font-family: "Berkeley Mono", "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 12px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -321,8 +328,8 @@ textarea {
 }
 
 .fee-box dd {
-  color: var(--foreground);
-  font-family: "Berkeley Mono", "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  color: #18263a;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 12px;
   font-weight: 800;
   margin: 0;
@@ -351,11 +358,11 @@ textarea {
   display: inline-flex;
   align-items: center;
   min-height: 30px;
-  border: 1px solid rgba(141, 161, 151, 0.22);
+  border: 1px solid #d8e2ef;
   border-radius: 999px;
-  background: rgba(16, 24, 21, 0.86);
-  color: var(--muted-strong);
-  font-family: "Berkeley Mono", "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  background: rgba(255, 255, 255, 0.72);
+  color: #42526a;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.02em;
