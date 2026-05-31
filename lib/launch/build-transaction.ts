@@ -93,7 +93,7 @@ export async function buildLaunchTransaction(input: BuildInput): Promise<BuildTr
     summary: [
       ...adapterOutput.summary,
       `Service fee: ${validation.feeEstimate.serviceFeeLamports} lamports`,
-      `Fee recipient: ${validation.feeEstimate.feeRecipient}`
+      "Fee recipient: configured"
     ],
     fee: validation.feeEstimate
   };

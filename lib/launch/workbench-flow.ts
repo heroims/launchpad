@@ -83,3 +83,22 @@ export function formatLamportsAsSol(lamports: number): string {
 export function shouldShowFirstBuyFields(firstBuyEnabled: string): boolean {
   return firstBuyEnabled === "true";
 }
+
+export function redactFeeRecipientsForDisplay(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => redactFeeRecipientsForDisplay(item));
+
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        key,
+        key === "feeRecipient" ? "已隐藏" : redactFeeRecipientsForDisplay(entry)
+      ])
+    );
+  }
+
+  if (typeof value === "string" && value.toLowerCase().startsWith("fee recipient:")) {
+    return "Fee recipient: 已隐藏";
+  }
+
+  return value;
+}

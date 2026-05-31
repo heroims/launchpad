@@ -5,6 +5,7 @@ import {
   getDraftForValidation,
   getLaunchFeeEstimate,
   makeBuildTransactionPayload,
+  redactFeeRecipientsForDisplay,
   shouldShowFirstBuyFields
 } from "@/lib/launch/workbench-flow";
 import type { LaunchDraft } from "@/lib/launch/types";
@@ -67,5 +68,28 @@ describe("workbench launch flow helpers", () => {
   it("only shows first-buy amount fields when first buy is enabled", () => {
     expect(shouldShowFirstBuyFields("false")).toBe(false);
     expect(shouldShowFirstBuyFields("true")).toBe(true);
+  });
+
+  it("redacts fee recipients from display-only API output", () => {
+    const hidden = redactFeeRecipientsForDisplay({
+      feeEstimate: {
+        serviceFeeLamports: 50_000_000,
+        estimatedPriorityFeeLamports: 2_000_000,
+        estimatedRentLamports: 10_000_000,
+        estimatedPlatformFeeLamports: 0,
+        totalEstimatedLamports: 1_062_000_000,
+        feeRecipient: "HpijwaAmevR4rFCP7kA1iTLB4gUKjhAJE6WkwdorMxzD"
+      },
+      summary: ["Service fee: 50000000 lamports", "Fee recipient: HpijwaAmevR4rFCP7kA1iTLB4gUKjhAJE6WkwdorMxzD"],
+      nested: {
+        fee: {
+          feeRecipient: "HpijwaAmevR4rFCP7kA1iTLB4gUKjhAJE6WkwdorMxzD"
+        }
+      }
+    });
+
+    const rendered = JSON.stringify(hidden);
+    expect(rendered).not.toContain("HpijwaAmevR4rFCP7kA1iTLB4gUKjhAJE6WkwdorMxzD");
+    expect(rendered).toContain("已隐藏");
   });
 });

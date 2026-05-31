@@ -18,6 +18,7 @@ import {
   getDraftForValidation,
   getLaunchFeeEstimate,
   makeBuildTransactionPayload,
+  redactFeeRecipientsForDisplay,
   shouldShowFirstBuyFields
 } from "@/lib/launch/workbench-flow";
 import { sendSignedTransactionsSequentially, signLaunchTransactions } from "@/lib/wallet/launch-signing";
@@ -182,6 +183,7 @@ export default function HomePage() {
   const draftForValidation = useMemo(() => getDraftForValidation(result), [result]);
   const draftForBuild = useMemo(() => getDraftForBuild(result), [result]);
   const currentFeeEstimate = useMemo(() => getLaunchFeeEstimate(result), [result]);
+  const displayResult = useMemo(() => redactFeeRecipientsForDisplay(result), [result]);
   const showFirstBuyFields = shouldShowFirstBuyFields(form.firstBuyEnabled);
 
   function update(key: keyof typeof form, value: string) {
@@ -532,10 +534,6 @@ export default function HomePage() {
                     <dd>{formatLamportsAsSol(currentFeeEstimate.totalEstimatedLamports)}</dd>
                   </div>
                   <div>
-                    <dt>收款地址</dt>
-                    <dd>{currentFeeEstimate.feeRecipient}</dd>
-                  </div>
-                  <div>
                     <dt>交易数量</dt>
                     <dd>{preparedLaunch ? preparedLaunch.transactions.length : "校验后构建"}</dd>
                   </div>
@@ -548,14 +546,14 @@ export default function HomePage() {
                   <strong>待签交易</strong>
                   <p className="field-note">
                     平台 {preparedLaunch.platform}，交易 {preparedLaunch.transactions.length} 笔，服务费{" "}
-                    {formatLamportsAsSol(preparedLaunch.fee.serviceFeeLamports)}，收款地址 {preparedLaunch.fee.feeRecipient}
+                    {formatLamportsAsSol(preparedLaunch.fee.serviceFeeLamports)}
                   </p>
                 </div>
                 <button disabled={busy || !walletConnection} onClick={signAndSendPreparedLaunch}>签名并发送</button>
                 {signingStatus ? <p className="field-note full-line">{signingStatus}</p> : null}
               </div>
             ) : null}
-            {result ? <pre>{JSON.stringify(result, null, 2)}</pre> : <p className="muted">还没有请求结果。</p>}
+            {result ? <pre>{JSON.stringify(displayResult, null, 2)}</pre> : <p className="muted">还没有请求结果。</p>}
           </div>
         </div>
       </section>

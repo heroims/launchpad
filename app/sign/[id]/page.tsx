@@ -14,7 +14,6 @@ export default async function SignPage({ params }: { params: Promise<{ id: strin
             <p>平台: {record.platform}</p>
             <p>状态: {record.status}</p>
             <p>服务费: {record.feeAmountLamports} lamports</p>
-            <p>收款地址: {record.feeRecipient}</p>
           </>
         ) : (
           <p className="warning">没有找到这条发射记录。serverless 环境需要持久数据库保存记录。</p>

@@ -56,6 +56,7 @@ describe("validateLaunchDraft", () => {
       slippageBps: 100
     });
     expect(result.feeEstimate.serviceFeeLamports).toBeGreaterThan(0);
+    expect(result.feeEstimate.feeRecipient).toBe("HpijwaAmevR4rFCP7kA1iTLB4gUKjhAJE6WkwdorMxzD");
   });
 
   it("rejects enabled first buy without a positive amount", async () => {

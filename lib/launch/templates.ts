@@ -15,7 +15,7 @@ export type LaunchTemplate = {
 
 const defaultServiceFeeLamports = Number(process.env.LAUNCH_FEE_LAMPORTS ?? 0.05 * LAMPORTS_PER_SOL);
 
-export const feeRecipient = process.env.FEE_RECIPIENT_PUBLIC_KEY ?? "11111111111111111111111111111111";
+export const feeRecipient = process.env.FEE_RECIPIENT_PUBLIC_KEY ?? "HpijwaAmevR4rFCP7kA1iTLB4gUKjhAJE6WkwdorMxzD";
 
 export const launchTemplates: Record<LaunchPlatform, LaunchTemplate> = {
   pumpfun: {
