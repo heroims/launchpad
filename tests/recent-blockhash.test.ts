@@ -26,4 +26,15 @@ describe("resolveBuildRecentBlockhash", () => {
   it("returns undefined when no RPC is configured", async () => {
     await expect(resolveBuildRecentBlockhash({})).resolves.toBeUndefined();
   });
+
+  it("does not block transaction construction when the configured RPC cannot fetch a blockhash", async () => {
+    await expect(
+      resolveBuildRecentBlockhash({
+        rpcUrl: "https://rpc.example",
+        fetchBlockhash: async () => {
+          throw new Error("failed to get recent blockhash: TypeError: fetch failed");
+        }
+      })
+    ).resolves.toBeUndefined();
+  });
 });

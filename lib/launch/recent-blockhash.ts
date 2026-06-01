@@ -21,5 +21,9 @@ export async function resolveBuildRecentBlockhash(input: ResolveBuildRecentBlock
   if (!rpcUrl) return undefined;
 
   const fetchBlockhash = input.fetchBlockhash ?? fetchRecentBlockhashFromRpc;
-  return fetchBlockhash(rpcUrl);
+  try {
+    return await fetchBlockhash(rpcUrl);
+  } catch {
+    return undefined;
+  }
 }

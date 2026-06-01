@@ -1,6 +1,6 @@
 import { createRequire } from "module";
 import { Connection, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
-import { NATIVE_MINT } from "@solana/spl-token";
+import { NATIVE_MINT, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { getProtocolSdkDescriptor, getProtocolSdkMethod } from "./protocol-sdks";
 import { resolveSolanaRpcUrl } from "./rpc";
 import type { LaunchDraft, LaunchPlatform } from "./types";
@@ -48,6 +48,12 @@ type RaydiumSdkModule = {
   ) => { publicKey: PublicKey };
   Raydium: {
     load(config: Record<string, unknown>): Promise<{
+      api?: {
+        fetchLaunchConfigs?: () => Promise<unknown[]>;
+      };
+      token?: {
+        getTokenInfo?: (mint: string | PublicKey) => Promise<unknown>;
+      };
       launchpad: {
         createLaunchpad(args: Record<string, unknown>): Promise<unknown>;
       };
@@ -242,6 +248,73 @@ function resolveRaydiumPlatformId(sdk: RaydiumSdkModule): PublicKey | undefined 
   return optionalPublicKeyEnv("RAYDIUM_LAUNCHPAD_PLATFORM_ID") ?? sdk.LAUNCHPAD_PLATFORM;
 }
 
+function raydiumFallbackLaunchConfig(configId: PublicKey): Record<string, unknown> {
+  return {
+    key: {
+      name: "Default SOL config",
+      pubKey: configId.toBase58(),
+      epoch: 0,
+      curveType: 0,
+      index: 0,
+      migrateFee: "0",
+      tradeFeeRate: "0",
+      maxShareFeeRate: "0",
+      minSupplyA: "0",
+      maxLockRate: "0",
+      minSellRateA: "0",
+      minMigrateRateA: "0",
+      minFundRaisingB: "0",
+      protocolFeeOwner: PublicKey.default.toBase58(),
+      migrateFeeOwner: PublicKey.default.toBase58(),
+      migrateToAmmWallet: PublicKey.default.toBase58(),
+      migrateToCpmmWallet: PublicKey.default.toBase58(),
+      mintB: NATIVE_MINT.toBase58()
+    },
+    defaultParams: {
+      supplyInit: "1000000000000000",
+      totalSellA: "793100000000000",
+      totalFundRaisingB: "85000000000"
+    }
+  };
+}
+
+function installRaydiumLaunchConfigFallback(
+  raydium: { api?: { fetchLaunchConfigs?: () => Promise<unknown[]> } },
+  configId: PublicKey
+) {
+  if (!raydium.api) return;
+  raydium.api.fetchLaunchConfigs = async () => [raydiumFallbackLaunchConfig(configId)];
+}
+
+function raydiumWsolTokenInfo(): Record<string, unknown> {
+  return {
+    chainId: 101,
+    address: NATIVE_MINT.toBase58(),
+    programId: TOKEN_PROGRAM_ID.toBase58(),
+    decimals: 9,
+    symbol: "WSOL",
+    name: "Wrapped SOL",
+    logoURI: "https://img-v1.raydium.io/icon/So11111111111111111111111111111111111111112.png",
+    tags: [],
+    priority: 2,
+    type: "raydium",
+    extensions: { coingeckoId: "solana" }
+  };
+}
+
+function installRaydiumTokenInfoFallback(raydium: {
+  token?: { getTokenInfo?: (mint: string | PublicKey) => Promise<unknown> };
+}) {
+  if (!raydium.token) return;
+  const originalGetTokenInfo = raydium.token.getTokenInfo?.bind(raydium.token);
+  raydium.token.getTokenInfo = async (mint) => {
+    const mintKey = typeof mint === "string" ? new PublicKey(mint) : mint;
+    if (mintKey.equals(NATIVE_MINT)) return raydiumWsolTokenInfo();
+    if (originalGetTokenInfo) return originalGetTokenInfo(mint);
+    throw new Error(`Raydium token info unavailable for ${mintKey.toBase58()}`);
+  };
+}
+
 function markerInstruction(platform: LaunchPlatform, draft: LaunchDraft, wallet: PublicKey): TransactionInstruction {
   const markerLamports = 1;
   const seed = `${platform}:${draft.tokenSymbol}:${draft.templateVersion}:${draft.mintPublicKey}`;
@@ -343,10 +416,13 @@ async function raydiumLiveInstructions(
   });
   const buyAmount = solToLamportsBn(draft.firstBuy?.enabled ? draft.firstBuy.amountSol : 0);
   const raydiumExtraConfigs = normalizeRaydiumExtraConfigs(draft.platformSpecificParams.extraConfigs);
+  const configId = resolveRaydiumConfigId(sdk);
   const platformId = resolveRaydiumPlatformId(sdk);
+  installRaydiumLaunchConfigFallback(raydium, configId);
+  installRaydiumTokenInfoFallback(raydium);
 
   const result = await raydium.launchpad.createLaunchpad({
-    configId: resolveRaydiumConfigId(sdk),
+    configId,
     ...(platformId ? { platformId } : {}),
     mintA: new PublicKey(draft.mintPublicKey),
     name: draft.tokenName,

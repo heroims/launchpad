@@ -80,7 +80,7 @@ describe("protocol adapters", () => {
     await expect(adapters.raydium_launchlab.buildInstructions(draft("raydium_launchlab"), wallet)).resolves.toEqual(
       expect.objectContaining({ summary: expect.arrayContaining(["Adapter mode: live"]) })
     );
-    expect(createConnection).toHaveBeenCalledWith("https://api.mainnet-beta.solana.com", "confirmed");
+    expect(createConnection).toHaveBeenCalledWith("https://solana-rpc.publicnode.com", "confirmed");
   });
 
   it("uses Raydium LaunchLab SDK default config and platform ids when overrides are absent", async () => {
@@ -119,6 +119,112 @@ describe("protocol adapters", () => {
       expect.objectContaining({
         configId: defaultConfigId,
         platformId: defaultPlatformId
+      })
+    );
+  });
+
+  it("provides a local Raydium LaunchLab config fallback so SDK API timeouts do not block construction", async () => {
+    vi.stubEnv("PROTOCOL_SDK_MODE", "live");
+    vi.stubEnv("SOLANA_RPC_URL", "http://127.0.0.1:8899");
+    vi.stubEnv("RAYDIUM_LAUNCHPAD_CONFIG_ID", "");
+    vi.stubEnv("RAYDIUM_LAUNCHPAD_PLATFORM_ID", "");
+
+    const defaultConfigId = PublicKey.unique();
+    const defaultPlatformId = PublicKey.unique();
+    const remoteFetchLaunchConfigs = vi.fn(async () => {
+      throw new Error("remote launch config timeout");
+    });
+    let fetchedConfigs: unknown;
+    const sdkInstruction = SystemProgram.transfer({
+      fromPubkey: wallet,
+      toPubkey: PublicKey.unique(),
+      lamports: 9
+    });
+    const raydiumInstance = {
+      api: {
+        fetchLaunchConfigs: remoteFetchLaunchConfigs
+      },
+      launchpad: {
+        createLaunchpad: vi.fn(async () => {
+          fetchedConfigs = await raydiumInstance.api.fetchLaunchConfigs();
+          return { transactions: [new Transaction().add(sdkInstruction)] };
+        })
+      }
+    };
+    const adapters = createProtocolAdapters({
+      loadRaydiumSdk: async () => ({
+        LAUNCHPAD_CONFIG: defaultConfigId,
+        LAUNCHPAD_PLATFORM: defaultPlatformId,
+        Raydium: {
+          load: vi.fn(async () => raydiumInstance)
+        },
+        TxVersion: { LEGACY: "legacy" }
+      })
+    });
+
+    const result = await adapters.raydium_launchlab.buildInstructions(draft("raydium_launchlab", false), wallet);
+
+    expect(result.instructions).toEqual([sdkInstruction]);
+    expect(remoteFetchLaunchConfigs).not.toHaveBeenCalled();
+    expect(fetchedConfigs).toEqual([
+      expect.objectContaining({
+        key: expect.objectContaining({ pubKey: defaultConfigId.toBase58() }),
+        defaultParams: expect.objectContaining({
+          supplyInit: expect.any(String),
+          totalSellA: expect.any(String),
+          totalFundRaisingB: expect.any(String)
+        })
+      })
+    ]);
+  });
+
+  it("provides local Raydium WSOL token info so SDK token API timeouts do not delay construction", async () => {
+    vi.stubEnv("PROTOCOL_SDK_MODE", "live");
+    vi.stubEnv("SOLANA_RPC_URL", "http://127.0.0.1:8899");
+
+    const remoteGetTokenInfo = vi.fn(async () => {
+      throw new Error("remote token info timeout");
+    });
+    let tokenInfo: unknown;
+    const sdkInstruction = SystemProgram.transfer({
+      fromPubkey: wallet,
+      toPubkey: PublicKey.unique(),
+      lamports: 10
+    });
+    const raydiumInstance = {
+      api: {
+        fetchLaunchConfigs: vi.fn(async () => [])
+      },
+      token: {
+        getTokenInfo: remoteGetTokenInfo
+      },
+      launchpad: {
+        createLaunchpad: vi.fn(async () => {
+          tokenInfo = await raydiumInstance.token.getTokenInfo("So11111111111111111111111111111111111111112");
+          return { transactions: [new Transaction().add(sdkInstruction)] };
+        })
+      }
+    };
+    const adapters = createProtocolAdapters({
+      loadRaydiumSdk: async () => ({
+        LAUNCHPAD_CONFIG: PublicKey.unique(),
+        LAUNCHPAD_PLATFORM: PublicKey.unique(),
+        Raydium: {
+          load: vi.fn(async () => raydiumInstance)
+        },
+        TxVersion: { LEGACY: "legacy" }
+      })
+    });
+
+    const result = await adapters.raydium_launchlab.buildInstructions(draft("raydium_launchlab", false), wallet);
+
+    expect(result.instructions).toEqual([sdkInstruction]);
+    expect(remoteGetTokenInfo).not.toHaveBeenCalled();
+    expect(tokenInfo).toEqual(
+      expect.objectContaining({
+        address: "So11111111111111111111111111111111111111112",
+        decimals: 9,
+        symbol: "WSOL"
       })
     );
   });
