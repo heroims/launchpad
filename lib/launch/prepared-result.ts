@@ -20,3 +20,13 @@ export function getPreparedLaunchResult(value: unknown): PreparedLaunchResult | 
 
   return value as PreparedLaunchResult;
 }
+
+export function getPreparedTransactionSteps(value: PreparedLaunchResult) {
+  const total = value.transactions.length;
+  return value.transactions.map((transaction, index) => ({
+    index: index + 1,
+    total,
+    label: transaction.label,
+    description: transaction.description
+  }));
+}

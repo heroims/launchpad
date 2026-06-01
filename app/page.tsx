@@ -12,7 +12,7 @@ import {
   type WalletConnection
 } from "@/lib/wallet/browser-wallet";
 import { generateLaunchMintKeypair, restoreLaunchMintKeypair } from "@/lib/wallet/mint-keypair";
-import { getPreparedLaunchResult } from "@/lib/launch/prepared-result";
+import { getPreparedLaunchResult, getPreparedTransactionSteps } from "@/lib/launch/prepared-result";
 import {
   applyLaunchFormToDraft,
   createLaunchIdempotencyKey,
@@ -201,6 +201,10 @@ export default function HomePage() {
     [form]
   );
   const preparedLaunch = useMemo(() => getPreparedLaunchResult(result), [result]);
+  const preparedTransactionSteps = useMemo(
+    () => (preparedLaunch ? getPreparedTransactionSteps(preparedLaunch) : []),
+    [preparedLaunch]
+  );
   const draftForValidation = useMemo(() => getDraftForValidation(result), [result]);
   const draftForBuild = useMemo(() => getDraftForBuild(result), [result]);
   const currentFeeEstimate = useMemo(() => getLaunchFeeEstimate(result), [result]);
@@ -583,6 +587,17 @@ export default function HomePage() {
                     平台 {preparedLaunch.platform}，交易 {preparedLaunch.transactions.length} 笔，服务费{" "}
                     {formatLamportsAsSol(preparedLaunch.fee.serviceFeeLamports)}
                   </p>
+                  <ol className="transaction-steps">
+                    {preparedTransactionSteps.map((step) => (
+                      <li key={`${step.index}-${step.label}`}>
+                        <span>{step.index}/{step.total}</span>
+                        <div>
+                          <strong>{step.label}</strong>
+                          <p>{step.description}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
                 </div>
                 <button disabled={busy} onClick={signAndSendPreparedLaunch}>签名并发送</button>
                 {signingStatus ? <p className="field-note full-line">{signingStatus}</p> : null}
