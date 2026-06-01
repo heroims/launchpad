@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyLaunchFormToDraft,
   createLaunchIdempotencyKey,
   formatLamportsAsSol,
   getDraftForBuild,
@@ -48,6 +49,25 @@ describe("workbench launch flow helpers", () => {
       draft,
       idempotencyKey: "idem-workbench"
     });
+  });
+
+  it("applies current form platform and first-buy values over a stale generated draft", () => {
+    const updated = applyLaunchFormToDraft(draft, {
+      walletAddress: draft.walletAddress,
+      mintPublicKey: draft.mintPublicKey,
+      tokenName: draft.tokenName,
+      tokenSymbol: draft.tokenSymbol,
+      description: draft.tokenMetadata.description,
+      imageUri: draft.tokenMetadata.imageUri,
+      budgetSol: "1",
+      preferredPlatform: "meteora_dbc",
+      firstBuyEnabled: "true",
+      firstBuyAmountSol: "0.2",
+      firstBuySlippageBps: "150"
+    });
+
+    expect(updated.platform).toBe("meteora_dbc");
+    expect(updated.firstBuy).toEqual({ enabled: true, amountSol: 0.2, slippageBps: 150 });
   });
 
   it("creates different idempotency keys when the selected launch platform changes", () => {

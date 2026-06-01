@@ -59,6 +59,49 @@ describe("validateLaunchDraft", () => {
     expect(result.feeEstimate.feeRecipient).toBe("HpijwaAmevR4rFCP7kA1iTLB4gUKjhAJE6WkwdorMxzD");
   });
 
+  it("includes enabled first-buy SOL in the total fee estimate", async () => {
+    const createOnly = await validateLaunchDraft({
+      platform: "meteora_dbc",
+      walletAddress: "11111111111111111111111111111111",
+      tokenName: "Launch Token",
+      tokenSymbol: "LAUNCH",
+      tokenMetadata: {
+        description: "A test launch",
+        imageUri: "https://example.com/token.png"
+      },
+      initialBudgetSol: 1,
+      mintPublicKey: "11111111111111111111111111111111",
+      firstBuy: {
+        enabled: false,
+        amountSol: 0,
+        slippageBps: 100
+      },
+      templateVersion: "v1",
+      platformSpecificParams: {}
+    });
+    const withFirstBuy = await validateLaunchDraft({
+      platform: "meteora_dbc",
+      walletAddress: "11111111111111111111111111111111",
+      tokenName: "Launch Token",
+      tokenSymbol: "LAUNCH",
+      tokenMetadata: {
+        description: "A test launch",
+        imageUri: "https://example.com/token.png"
+      },
+      initialBudgetSol: 1,
+      mintPublicKey: "11111111111111111111111111111111",
+      firstBuy: {
+        enabled: true,
+        amountSol: 0.2,
+        slippageBps: 100
+      },
+      templateVersion: "v1",
+      platformSpecificParams: {}
+    });
+
+    expect(withFirstBuy.feeEstimate.totalEstimatedLamports - createOnly.feeEstimate.totalEstimatedLamports).toBe(200_000_000);
+  });
+
   it("rejects enabled first buy without a positive amount", async () => {
     const result = await validateLaunchDraft({
       platform: "pumpfun",

@@ -14,6 +14,7 @@ import {
 import { generateLaunchMintKeypair, restoreLaunchMintKeypair } from "@/lib/wallet/mint-keypair";
 import { getPreparedLaunchResult } from "@/lib/launch/prepared-result";
 import {
+  applyLaunchFormToDraft,
   createLaunchIdempotencyKey,
   formatLamportsAsSol,
   getDraftForBuild,
@@ -206,6 +207,23 @@ export default function HomePage() {
   const displayResult = useMemo(() => redactFeeRecipientsForDisplay(result), [result]);
   const showFirstBuyFields = shouldShowFirstBuyFields(form.firstBuyEnabled);
 
+  const formDraftInput = useMemo(
+    () => ({
+      walletAddress: form.walletAddress,
+      mintPublicKey: form.mintPublicKey,
+      tokenName: form.tokenName,
+      tokenSymbol: form.tokenSymbol,
+      description: form.description,
+      imageUri: form.imageUri,
+      budgetSol: form.budgetSol,
+      preferredPlatform: form.preferredPlatform,
+      firstBuyEnabled: form.firstBuyEnabled,
+      firstBuyAmountSol: form.firstBuyAmountSol,
+      firstBuySlippageBps: form.firstBuySlippageBps
+    }),
+    [form]
+  );
+
   function update(key: keyof typeof form, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
     if (key === "walletAddress" && value) {
@@ -235,7 +253,7 @@ export default function HomePage() {
       return;
     }
 
-    await callApi("/api/launch/validate", { draft });
+    await callApi("/api/launch/validate", { draft: applyLaunchFormToDraft(draft, formDraftInput) });
   }
 
   async function buildCurrentTransaction() {
@@ -248,7 +266,10 @@ export default function HomePage() {
       return;
     }
 
-    await callApi("/api/launch/build-transaction", payload);
+    await callApi("/api/launch/build-transaction", {
+      ...payload,
+      draft: applyLaunchFormToDraft(payload.draft, formDraftInput)
+    });
   }
 
   async function recordLaunchResult(launchRecordId: string, signatures: string[], status: "sent" | "failed", errorMessage?: string) {

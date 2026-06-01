@@ -45,7 +45,7 @@ function isHttpUrl(value?: string): boolean {
   }
 }
 
-function makeFeeEstimate(draft?: Pick<LaunchDraft, "platform" | "initialBudgetSol" | "templateVersion">): FeeEstimate {
+function makeFeeEstimate(draft?: Pick<LaunchDraft, "platform" | "initialBudgetSol" | "templateVersion" | "firstBuy">): FeeEstimate {
   if (!draft) {
     return {
       serviceFeeLamports: 0,
@@ -59,8 +59,10 @@ function makeFeeEstimate(draft?: Pick<LaunchDraft, "platform" | "initialBudgetSo
 
   const template = getLaunchTemplate(draft.platform, draft.templateVersion);
   const budgetLamports = Math.ceil(draft.initialBudgetSol * LAMPORTS_PER_SOL);
+  const firstBuyLamports = draft.firstBuy?.enabled ? Math.ceil(draft.firstBuy.amountSol * LAMPORTS_PER_SOL) : 0;
   const totalEstimatedLamports =
     budgetLamports +
+    firstBuyLamports +
     template.serviceFeeLamports +
     template.estimatedPriorityFeeLamports +
     template.estimatedRentLamports +

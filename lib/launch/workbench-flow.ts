@@ -1,5 +1,5 @@
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
-import type { FeeEstimate, LaunchDraft } from "./types";
+import type { FeeEstimate, LaunchDraft, LaunchPlatform } from "./types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -60,6 +60,52 @@ export function makeBuildTransactionPayload(value: unknown, idempotencyKey: stri
   const draft = getDraftForBuild(value);
   if (!draft) return null;
   return { draft, idempotencyKey };
+}
+
+export type LaunchFormDraftInput = {
+  walletAddress: string;
+  mintPublicKey: string;
+  tokenName: string;
+  tokenSymbol: string;
+  description: string;
+  imageUri: string;
+  budgetSol: string;
+  preferredPlatform?: string;
+  firstBuyEnabled: string;
+  firstBuyAmountSol: string;
+  firstBuySlippageBps: string;
+};
+
+function numberFromForm(value: string, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function isLaunchPlatform(value?: string): value is LaunchPlatform {
+  return value === "pumpfun" || value === "raydium_launchlab" || value === "meteora_dbc";
+}
+
+export function applyLaunchFormToDraft(draft: LaunchDraft, input: LaunchFormDraftInput): LaunchDraft {
+  const firstBuyEnabled = input.firstBuyEnabled === "true";
+  return {
+    ...draft,
+    platform: isLaunchPlatform(input.preferredPlatform) ? input.preferredPlatform : draft.platform,
+    walletAddress: input.walletAddress,
+    mintPublicKey: input.mintPublicKey,
+    tokenName: input.tokenName,
+    tokenSymbol: input.tokenSymbol,
+    tokenMetadata: {
+      ...draft.tokenMetadata,
+      description: input.description,
+      imageUri: input.imageUri
+    },
+    initialBudgetSol: numberFromForm(input.budgetSol, draft.initialBudgetSol),
+    firstBuy: {
+      enabled: firstBuyEnabled,
+      amountSol: firstBuyEnabled ? numberFromForm(input.firstBuyAmountSol, draft.firstBuy?.amountSol ?? 0) : 0,
+      slippageBps: Math.round(numberFromForm(input.firstBuySlippageBps, draft.firstBuy?.slippageBps ?? 0))
+    }
+  };
 }
 
 export function createLaunchIdempotencyKey(input: {
