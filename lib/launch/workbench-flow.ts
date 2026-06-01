@@ -62,6 +62,26 @@ export function makeBuildTransactionPayload(value: unknown, idempotencyKey: stri
   return { draft, idempotencyKey };
 }
 
+export function createLaunchIdempotencyKey(input: {
+  walletAddress: string;
+  mintPublicKey: string;
+  tokenSymbol: string;
+  budgetSol: string;
+  preferredPlatform?: string;
+  firstBuyEnabled: string;
+  firstBuyAmountSol: string;
+}): string {
+  return [
+    input.walletAddress,
+    input.mintPublicKey,
+    input.tokenSymbol.trim().toUpperCase(),
+    input.budgetSol,
+    input.preferredPlatform || "agent",
+    input.firstBuyEnabled,
+    input.firstBuyAmountSol
+  ].join(":");
+}
+
 export function getLaunchFeeEstimate(value: unknown): FeeEstimate | null {
   if (!isRecord(value)) return null;
   if (isFeeEstimate(value.feeEstimate)) return value.feeEstimate;

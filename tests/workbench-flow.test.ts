@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  createLaunchIdempotencyKey,
   formatLamportsAsSol,
   getDraftForBuild,
   getDraftForValidation,
@@ -47,6 +48,21 @@ describe("workbench launch flow helpers", () => {
       draft,
       idempotencyKey: "idem-workbench"
     });
+  });
+
+  it("creates different idempotency keys when the selected launch platform changes", () => {
+    const baseInput = {
+      walletAddress: "11111111111111111111111111111111",
+      mintPublicKey: "11111111111111111111111111111111",
+      tokenSymbol: "WORK",
+      budgetSol: "1",
+      firstBuyEnabled: "false",
+      firstBuyAmountSol: "0"
+    };
+
+    expect(createLaunchIdempotencyKey({ ...baseInput, preferredPlatform: "raydium_launchlab" })).not.toBe(
+      createLaunchIdempotencyKey({ ...baseInput, preferredPlatform: "meteora_dbc" })
+    );
   });
 
   it("extracts and formats fee estimates for pre-sign confirmation", () => {

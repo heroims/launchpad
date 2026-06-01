@@ -229,14 +229,152 @@ describe("protocol adapters", () => {
     );
   });
 
-  it("requires a deterministic Meteora minimum amount out for live first-buy builds", async () => {
+  it("builds Meteora DBC create-only instructions by creating a config and pool when no config id is configured", async () => {
+    vi.stubEnv("PROTOCOL_SDK_MODE", "live");
+    vi.stubEnv("SOLANA_RPC_URL", "http://127.0.0.1:8899");
+    vi.stubEnv("METEORA_DBC_CONFIG_ID", "");
+
+    const sdkInstruction = SystemProgram.transfer({
+      fromPubkey: wallet,
+      toPubkey: PublicKey.unique(),
+      lamports: 19
+    });
+    const createConfigAndPool = vi.fn(async () => new Transaction().add(sdkInstruction));
+    const adapters = createProtocolAdapters({
+      loadMeteoraSdk: async () => ({
+        ActivationType: { Timestamp: 1 },
+        BaseFeeMode: { FeeSchedulerLinear: 0 },
+        CollectFeeMode: { QuoteToken: 0 },
+        MigrationFeeOption: { FixedBps25: 0 },
+        MigrationOption: { MET_DAMM_V2: 1 },
+        TokenDecimal: { SIX: 6, NINE: 9 },
+        TokenType: { SPL: 0 },
+        TokenUpdateAuthorityOption: { CreatorUpdateAuthority: 0 },
+        buildCurveWithMarketCap: vi.fn(() => ({
+          tokenType: 0,
+          poolFees: { baseFee: {} },
+          activationType: 1
+        })),
+        DynamicBondingCurveClient: class {
+          pool = { createConfigAndPool };
+        }
+      })
+    });
+
+    const result = await adapters.meteora_dbc.buildInstructions(draft("meteora_dbc", false), wallet);
+
+    expect(result.instructions).toEqual([sdkInstruction]);
+    expect(result.partialSigners).toHaveLength(1);
+    expect(createConfigAndPool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: result.partialSigners?.[0].publicKey,
+        feeClaimer: wallet,
+        leftoverReceiver: wallet,
+        payer: wallet,
+        preCreatePoolParam: expect.objectContaining({
+          baseMint: wallet,
+          poolCreator: wallet
+        })
+      })
+    );
+  });
+
+  it("builds Meteora DBC first-buy instructions by creating a config and pool when no config id is configured", async () => {
+    vi.stubEnv("PROTOCOL_SDK_MODE", "live");
+    vi.stubEnv("SOLANA_RPC_URL", "http://127.0.0.1:8899");
+    vi.stubEnv("METEORA_DBC_CONFIG_ID", "");
+
+    const configInstruction = SystemProgram.transfer({
+      fromPubkey: wallet,
+      toPubkey: PublicKey.unique(),
+      lamports: 23
+    });
+    const poolInstruction = SystemProgram.transfer({
+      fromPubkey: wallet,
+      toPubkey: PublicKey.unique(),
+      lamports: 29
+    });
+    const createConfigAndPoolWithFirstBuy = vi.fn(async () => ({
+      createConfigTx: new Transaction().add(configInstruction),
+      createPoolWithFirstBuyTx: new Transaction().add(poolInstruction)
+    }));
+    const adapters = createProtocolAdapters({
+      loadMeteoraSdk: async () => ({
+        ActivationType: { Timestamp: 1 },
+        BaseFeeMode: { FeeSchedulerLinear: 0 },
+        CollectFeeMode: { QuoteToken: 0 },
+        MigrationFeeOption: { FixedBps25: 0 },
+        MigrationOption: { MET_DAMM_V2: 1 },
+        TokenDecimal: { SIX: 6, NINE: 9 },
+        TokenType: { SPL: 0 },
+        TokenUpdateAuthorityOption: { CreatorUpdateAuthority: 0 },
+        buildCurveWithMarketCap: vi.fn(() => ({
+          tokenType: 0,
+          poolFees: { baseFee: {} },
+          activationType: 1
+        })),
+        DynamicBondingCurveClient: class {
+          pool = { createConfigAndPoolWithFirstBuy };
+        }
+      })
+    });
+
+    const result = await adapters.meteora_dbc.buildInstructions(draft("meteora_dbc", true), wallet);
+
+    expect(result.instructions).toEqual([configInstruction, poolInstruction]);
+    expect(result.transactionGroups).toEqual([
+      expect.objectContaining({
+        label: "meteora-create-config",
+        instructions: [configInstruction],
+        partialSigners: result.partialSigners
+      }),
+      expect.objectContaining({
+        label: "meteora-create-pool-first-buy",
+        instructions: [poolInstruction],
+        partialSigners: []
+      })
+    ]);
+    expect(result.partialSigners).toHaveLength(1);
+    expect(createConfigAndPoolWithFirstBuy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        firstBuyParam: expect.objectContaining({
+          buyer: wallet,
+          receiver: wallet,
+          referralTokenAccount: null
+        })
+      })
+    );
+    const args = createConfigAndPoolWithFirstBuy.mock.calls[0][0] as {
+      firstBuyParam: Record<string, { toString(): string }>;
+    };
+    expect(args.firstBuyParam.buyAmount.toString()).toBe("200000000");
+    expect(args.firstBuyParam.minimumAmountOut.toString()).toBe("0");
+  });
+
+  it("uses an existing Meteora DBC config id when one is configured", async () => {
     vi.stubEnv("PROTOCOL_SDK_MODE", "live");
     vi.stubEnv("SOLANA_RPC_URL", "http://127.0.0.1:8899");
     vi.stubEnv("METEORA_DBC_CONFIG_ID", wallet.toBase58());
 
-    await expect(protocolAdapters.meteora_dbc.buildInstructions(draft("meteora_dbc"), wallet)).rejects.toThrow(
-      /Meteora DBC live first buy requires platformSpecificParams.minimumAmountOut/
-    );
+    const sdkInstruction = SystemProgram.transfer({
+      fromPubkey: wallet,
+      toPubkey: PublicKey.unique(),
+      lamports: 31
+    });
+    const createPool = vi.fn(async () => new Transaction().add(sdkInstruction));
+    const adapters = createProtocolAdapters({
+      loadMeteoraSdk: async () => ({
+        DynamicBondingCurveClient: class {
+          pool = { createPool };
+        }
+      })
+    });
+
+    const result = await adapters.meteora_dbc.buildInstructions(draft("meteora_dbc", false), wallet);
+
+    expect(result.instructions).toEqual([sdkInstruction]);
+    expect(result.partialSigners).toEqual([]);
+    expect(createPool).toHaveBeenCalledWith(expect.objectContaining({ config: wallet }));
   });
 
   it("builds Raydium LaunchLab create-only instructions from the SDK transaction and forwards extra configs", async () => {
@@ -325,7 +463,7 @@ describe("protocol adapters", () => {
     expect(args.slippage.toString()).toBe("100");
   });
 
-  it("builds Meteora DBC create-only and first-buy instructions through pool SDK methods", async () => {
+  it("builds Meteora DBC create-only and first-buy instructions through existing-config pool SDK methods", async () => {
     vi.stubEnv("PROTOCOL_SDK_MODE", "live");
     vi.stubEnv("SOLANA_RPC_URL", "http://127.0.0.1:8899");
     vi.stubEnv("METEORA_DBC_CONFIG_ID", wallet.toBase58());

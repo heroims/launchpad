@@ -14,6 +14,7 @@ import {
 import { generateLaunchMintKeypair, restoreLaunchMintKeypair } from "@/lib/wallet/mint-keypair";
 import { getPreparedLaunchResult } from "@/lib/launch/prepared-result";
 import {
+  createLaunchIdempotencyKey,
   formatLamportsAsSol,
   getDraftForBuild,
   getDraftForValidation,
@@ -186,7 +187,15 @@ export default function HomePage() {
           ? { type: "anthropic", apiKey: form.apiKey, model: form.model, baseUrl: form.baseUrl || undefined }
           : { type: "openai-compatible", apiKey: form.apiKey, model: form.model, baseUrl: form.baseUrl }
         : undefined,
-      idempotencyKey: `${form.walletAddress}:${form.tokenSymbol}:${form.budgetSol}`
+      idempotencyKey: createLaunchIdempotencyKey({
+        walletAddress: form.walletAddress,
+        mintPublicKey: form.mintPublicKey,
+        tokenSymbol: form.tokenSymbol,
+        budgetSol: form.budgetSol,
+        preferredPlatform: form.preferredPlatform,
+        firstBuyEnabled: form.firstBuyEnabled,
+        firstBuyAmountSol: form.firstBuyAmountSol
+      })
     }),
     [form]
   );

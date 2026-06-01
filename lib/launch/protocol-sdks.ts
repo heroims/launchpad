@@ -38,8 +38,8 @@ const descriptors: Record<LaunchPlatform, ProtocolSdkDescriptor> = {
   meteora_dbc: {
     platform: "meteora_dbc",
     packageName: "@meteora-ag/dynamic-bonding-curve-sdk",
-    createOnlyMethod: "DynamicBondingCurveClient.pool.createPool",
-    createWithFirstBuyMethod: "DynamicBondingCurveClient.pool.createPoolWithFirstBuy",
+    createOnlyMethod: "DynamicBondingCurveClient.pool.createConfigAndPool",
+    createWithFirstBuyMethod: "DynamicBondingCurveClient.pool.createConfigAndPoolWithFirstBuy",
     requiresMintSigner: true,
     firstBuyAmountSource: "user_input_sol",
     notes: [

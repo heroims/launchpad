@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "crypto";
 import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import { feeRecipient } from "./templates";
-import { getProtocolSdkMode, protocolAdapters } from "./adapters";
+import { getProtocolSdkMode, protocolAdapters, type ProtocolAdapterOutput, type ProtocolTransactionGroup } from "./adapters";
 import { createLaunchRecord, getBuildPayload, getRecordById, storeBuildPayload, updateLaunchRecord } from "./repository";
 import { validateLaunchDraft } from "./validator";
 import type { BuildTransactionResult, LaunchDraft } from "./types";
@@ -16,6 +16,33 @@ function hashPayload(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "undefined";
+}
+
+function scopedIdempotencyKey(rawKey: string, draft: LaunchDraft): string {
+  return `${rawKey}:${hashPayload(stableStringify(draft))}`;
+}
+
+function makeProtocolTransactionGroups(adapterOutput: ProtocolAdapterOutput): ProtocolTransactionGroup[] {
+  if (adapterOutput.transactionGroups?.length) return adapterOutput.transactionGroups;
+  return [
+    {
+      label: "launch-and-service-fee",
+      description: "Unsigned transaction containing launch instructions and service fee transfer.",
+      instructions: adapterOutput.instructions,
+      partialSigners: adapterOutput.partialSigners
+    }
+  ];
+}
+
 export async function buildLaunchTransaction(input: BuildInput): Promise<BuildTransactionResult> {
   const validation = await validateLaunchDraft(input.draft);
   if (!validation.ok || !validation.normalizedDraft) {
@@ -27,7 +54,8 @@ export async function buildLaunchTransaction(input: BuildInput): Promise<BuildTr
     throw new Error("Dry-run protocol SDK mode cannot build user-signable launch transactions. Set PROTOCOL_SDK_MODE=live.");
   }
 
-  const existingId = `launch_${hashPayload(input.idempotencyKey).slice(0, 16)}`;
+  const scopedKey = scopedIdempotencyKey(input.idempotencyKey, draft);
+  const existingId = `launch_${hashPayload(scopedKey).slice(0, 16)}`;
   const existing = getRecordById(existingId);
   if (existing?.unsignedTxHash) {
     const cachedPayload = getBuildPayload(existing.id);
@@ -45,33 +73,42 @@ export async function buildLaunchTransaction(input: BuildInput): Promise<BuildTr
   const wallet = new PublicKey(draft.walletAddress);
   const recipient = new PublicKey(validation.feeEstimate.feeRecipient || feeRecipient);
   const adapterOutput = await protocolAdapters[draft.platform].buildInstructions(draft, wallet);
+  const protocolGroups = makeProtocolTransactionGroups(adapterOutput);
+  const lastGroupIndex = protocolGroups.length - 1;
 
-  const tx = new Transaction({
-    feePayer: wallet,
-    recentBlockhash: input.recentBlockhash ?? "11111111111111111111111111111111"
-  });
+  const transactions = protocolGroups.map((group, index) => {
+    const tx = new Transaction({
+      feePayer: wallet,
+      recentBlockhash: input.recentBlockhash ?? "11111111111111111111111111111111"
+    });
 
-  tx.add(...adapterOutput.instructions);
-  tx.add(
-    SystemProgram.transfer({
-      fromPubkey: wallet,
-      toPubkey: recipient,
-      lamports: validation.feeEstimate.serviceFeeLamports
-    })
-  );
-
-  const serializedTransaction = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
-  const unsignedTxHash = hashPayload(serializedTransaction);
-
-  const transactions = [
-    {
-      label: "launch-and-service-fee",
-      description: "Unsigned transaction containing launch instructions and service fee transfer.",
-      serializedTransaction
+    tx.add(...group.instructions);
+    if (index === lastGroupIndex) {
+      tx.add(
+        SystemProgram.transfer({
+          fromPubkey: wallet,
+          toPubkey: recipient,
+          lamports: validation.feeEstimate.serviceFeeLamports
+        })
+      );
     }
-  ];
+    if (group.partialSigners?.length) {
+      tx.partialSign(...group.partialSigners);
+    }
+
+    return {
+      label: index === lastGroupIndex && protocolGroups.length === 1 ? "launch-and-service-fee" : group.label,
+      description:
+        index === lastGroupIndex
+          ? `${group.description} Includes the service fee transfer.`
+          : group.description,
+      serializedTransaction: tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64")
+    };
+  });
+  const unsignedTxHash = hashPayload(transactions.map((transaction) => transaction.serializedTransaction).join(":"));
   const summary = [
     ...adapterOutput.summary,
+    `Transaction count: ${transactions.length}`,
     `Service fee: ${validation.feeEstimate.serviceFeeLamports} lamports`,
     "Fee recipient: configured"
   ];
@@ -91,7 +128,7 @@ export async function buildLaunchTransaction(input: BuildInput): Promise<BuildTr
     feeAmountLamports: validation.feeEstimate.serviceFeeLamports,
     feeRecipient: validation.feeEstimate.feeRecipient,
     unsignedTxHash,
-    idempotencyKey: input.idempotencyKey
+    idempotencyKey: scopedKey
   });
 
   updateLaunchRecord(record.id, { unsignedTxHash, status: "transaction_built" });

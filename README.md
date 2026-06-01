@@ -22,9 +22,9 @@ The `PumpFunAdapter`, `RaydiumLaunchLabAdapter`, and `MeteoraDbcAdapter` isolate
 - `pump.fun` create-only uses `@pump-fun/pump-sdk` directly and does not require `SOLANA_RPC_URL`.
 - `pump.fun` create-and-buy uses the server-side Solana RPC for SDK state reads.
 - `Raydium LaunchLab` uses the server-side Solana RPC and defaults `configId` / `platformId` from `@raydium-io/raydium-sdk-v2`.
-- `Meteora DBC` uses the server-side Solana RPC and requires `METEORA_DBC_CONFIG_ID`.
+- `Meteora DBC` uses the server-side Solana RPC. When `METEORA_DBC_CONFIG_ID` is empty, it builds with `createConfigAndPool` / `createConfigAndPoolWithFirstBuy` and generates a launch-specific config signer that the backend partially signs before returning the wallet transaction. When first buy is enabled, Meteora returns a two-transaction group: config creation first, then pool creation / first buy / service fee. When `METEORA_DBC_CONFIG_ID` is set, it uses the existing-config `createPool` / `createPoolWithFirstBuy` path.
 
-The server-side Solana RPC defaults to `https://solana-rpc.publicnode.com`. Set `SOLANA_RPC_URL` only when you want to override it with a private RPC, devnet RPC, or localnet RPC. Set `RAYDIUM_LAUNCHPAD_CONFIG_ID` / `RAYDIUM_LAUNCHPAD_PLATFORM_ID` only when you need to override the SDK defaults.
+The server-side Solana RPC defaults to `https://solana-rpc.publicnode.com`. Set `SOLANA_RPC_URL` only when you want to override it with a private RPC, devnet RPC, or localnet RPC. Set `RAYDIUM_LAUNCHPAD_CONFIG_ID` / `RAYDIUM_LAUNCHPAD_PLATFORM_ID` only when you need to override the SDK defaults. Set `METEORA_DBC_CONFIG_ID` only when you want every Meteora launch to use a pre-created DBC config instead of creating one per launch.
 
 `PROTOCOL_SDK_MODE=dry-run` is retained only for isolated adapter tests and should not be used to produce user-signable launch transactions.
 

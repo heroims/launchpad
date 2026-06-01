@@ -159,6 +159,17 @@ export async function validateLaunchDraft(input: unknown): Promise<ValidationRes
       field: "firstBuy.slippageBps"
     });
   }
+  if (
+    draft.platform === "meteora_dbc" &&
+    draft.firstBuy?.enabled &&
+    draft.platformSpecificParams.minimumAmountOut === undefined
+  ) {
+    warnings.push({
+      code: "meteora_minimum_out_default_zero",
+      message: "Meteora DBC first buy will use minimumAmountOut=0 until quote-based slippage calculation is wired.",
+      field: "platformSpecificParams.minimumAmountOut"
+    });
+  }
   if (!description) {
     warnings.push({
       code: "description_empty",

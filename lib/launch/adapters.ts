@@ -1,5 +1,5 @@
 import { createRequire } from "module";
-import { Connection, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
+import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { NATIVE_MINT, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { getProtocolSdkDescriptor, getProtocolSdkMethod } from "./protocol-sdks";
 import { resolveSolanaRpcUrl } from "./rpc";
@@ -12,7 +12,16 @@ type ProtocolSdkMode = "dry-run" | "live";
 export type ProtocolAdapterOutput = {
   instructions: TransactionInstruction[];
   requiredSigners: string[];
+  partialSigners?: Keypair[];
+  transactionGroups?: ProtocolTransactionGroup[];
   summary: string[];
+};
+
+export type ProtocolTransactionGroup = {
+  label: string;
+  description: string;
+  instructions: TransactionInstruction[];
+  partialSigners?: Keypair[];
 };
 
 export type ProtocolAdapter = {
@@ -65,20 +74,33 @@ type RaydiumSdkModule = {
 };
 
 type MeteoraSdkModule = {
+  ActivationType?: Record<string, number>;
+  BaseFeeMode?: Record<string, number>;
+  CollectFeeMode?: Record<string, number>;
   DynamicBondingCurveClient: {
     new (connection: Connection, commitment: "confirmed"): {
       pool: {
+        createConfigAndPool?(params: Record<string, unknown>): Promise<unknown>;
+        createConfigAndPoolWithFirstBuy?(params: Record<string, unknown>): Promise<unknown>;
         createPool(params: Record<string, unknown>): Promise<unknown>;
         createPoolWithFirstBuy(params: Record<string, unknown>): Promise<unknown>;
       };
     };
     create?: (connection: Connection, commitment?: "confirmed") => {
       pool: {
+        createConfigAndPool?(params: Record<string, unknown>): Promise<unknown>;
+        createConfigAndPoolWithFirstBuy?(params: Record<string, unknown>): Promise<unknown>;
         createPool(params: Record<string, unknown>): Promise<unknown>;
         createPoolWithFirstBuy(params: Record<string, unknown>): Promise<unknown>;
       };
     };
   };
+  MigrationFeeOption?: Record<string, number>;
+  MigrationOption?: Record<string, number>;
+  TokenDecimal?: Record<string, number>;
+  TokenType?: Record<string, number>;
+  TokenUpdateAuthorityOption?: Record<string, number>;
+  buildCurveWithMarketCap?(params: Record<string, unknown>): Record<string, unknown>;
 };
 
 export type ProtocolAdapterDependencies = {
@@ -99,26 +121,6 @@ export function getProtocolSdkMode(): ProtocolSdkMode {
   const mode = (process.env.PROTOCOL_SDK_MODE || "live").trim().toLowerCase();
   if (mode === "dry-run" || mode === "live") return mode;
   throw new Error(`Unsupported PROTOCOL_SDK_MODE: ${process.env.PROTOCOL_SDK_MODE}`);
-}
-
-function requireEnv(names: string[]): Record<string, string> {
-  const values: Record<string, string> = {};
-  const missing: string[] = [];
-
-  for (const name of names) {
-    const value = process.env[name]?.trim();
-    if (!value) {
-      missing.push(name);
-    } else {
-      values[name] = value;
-    }
-  }
-
-  if (missing.length > 0) {
-    throw new Error(`Missing live adapter config: ${missing.join(", ")}`);
-  }
-
-  return values;
 }
 
 function solToLamportsBn(amountSol: number): InstanceType<BnConstructor> {
@@ -154,6 +156,40 @@ function optionalPublicKeyEnv(name: string): PublicKey | undefined {
   return value ? new PublicKey(value) : undefined;
 }
 
+function optionalPublicKeyParam(value: unknown): PublicKey | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  return new PublicKey(value.trim());
+}
+
+function numberParam(value: unknown, defaultValue: number): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return defaultValue;
+}
+
+function sdkEnumValue(
+  sdk: MeteoraSdkModule,
+  enumName: keyof Pick<
+    MeteoraSdkModule,
+    | "ActivationType"
+    | "BaseFeeMode"
+    | "CollectFeeMode"
+    | "MigrationFeeOption"
+    | "MigrationOption"
+    | "TokenDecimal"
+    | "TokenType"
+    | "TokenUpdateAuthorityOption"
+  >,
+  key: string,
+  fallback: number
+): number {
+  const enumValue = sdk[enumName]?.[key];
+  return typeof enumValue === "number" ? enumValue : fallback;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -185,8 +221,8 @@ function collectSdkInstructions(value: unknown): TransactionInstruction[] {
     const transactionInstructions = [
       ...collectSdkInstructions(candidate.transaction),
       ...collectSdkInstructions(candidate.transactions),
-      ...collectSdkInstructions(candidate.createPoolWithFirstBuyTx),
-      ...collectSdkInstructions(candidate.createConfigTx)
+      ...collectSdkInstructions(candidate.createConfigTx),
+      ...collectSdkInstructions(candidate.createPoolWithFirstBuyTx)
     ];
     if (transactionInstructions.length > 0) return transactionInstructions;
 
@@ -331,6 +367,8 @@ function dryRunInstructions(platform: LaunchPlatform, label: string, draft: Laun
   return {
     instructions: [markerInstruction(platform, draft, wallet)],
     requiredSigners: descriptor.requiresMintSigner ? [draft.mintPublicKey] : [],
+    partialSigners: [],
+    transactionGroups: [],
     summary: [
       "Adapter mode: dry-run",
       `${label} launch template ${draft.templateVersion}`,
@@ -440,20 +478,105 @@ async function raydiumLiveInstructions(
   return collectSdkInstructions(result);
 }
 
+function buildMeteoraDefaultConfigParams(sdk: MeteoraSdkModule, draft: LaunchDraft): Record<string, unknown> {
+  if (!sdk.buildCurveWithMarketCap) {
+    throw new Error("Meteora DBC SDK does not expose buildCurveWithMarketCap; set METEORA_DBC_CONFIG_ID to use an existing config.");
+  }
+
+  return sdk.buildCurveWithMarketCap({
+    token: {
+      tokenType: sdkEnumValue(sdk, "TokenType", "SPL", 0),
+      tokenBaseDecimal: sdkEnumValue(sdk, "TokenDecimal", "SIX", 6),
+      tokenQuoteDecimal: sdkEnumValue(sdk, "TokenDecimal", "NINE", 9),
+      tokenUpdateAuthority: sdkEnumValue(sdk, "TokenUpdateAuthorityOption", "CreatorUpdateAuthority", 0),
+      totalTokenSupply: numberParam(draft.platformSpecificParams.totalTokenSupply, 1_000_000_000),
+      leftover: numberParam(draft.platformSpecificParams.leftoverTokenAmount, 0)
+    },
+    fee: {
+      baseFeeParams: {
+        baseFeeMode: sdkEnumValue(sdk, "BaseFeeMode", "FeeSchedulerLinear", 0),
+        feeSchedulerParam: {
+          startingFeeBps: numberParam(draft.platformSpecificParams.startingFeeBps, 100),
+          endingFeeBps: numberParam(draft.platformSpecificParams.endingFeeBps, 25),
+          numberOfPeriod: numberParam(draft.platformSpecificParams.feeSchedulerPeriods, 10),
+          totalDuration: numberParam(draft.platformSpecificParams.feeSchedulerDurationSeconds, 3600)
+        }
+      },
+      dynamicFeeEnabled: boolParam(draft.platformSpecificParams.dynamicFeeEnabled, false),
+      collectFeeMode: sdkEnumValue(sdk, "CollectFeeMode", "QuoteToken", 0),
+      creatorTradingFeePercentage: numberParam(draft.platformSpecificParams.creatorTradingFeePercentage, 0),
+      poolCreationFee: numberParam(draft.platformSpecificParams.poolCreationFeeLamports, 0),
+      enableFirstSwapWithMinFee: true
+    },
+    migration: {
+      migrationOption: sdkEnumValue(sdk, "MigrationOption", "MET_DAMM_V2", 1),
+      migrationFeeOption: sdkEnumValue(sdk, "MigrationFeeOption", "FixedBps25", 0),
+      migrationFee: {
+        feePercentage: numberParam(draft.platformSpecificParams.migrationFeePercentage, 0),
+        creatorFeePercentage: numberParam(draft.platformSpecificParams.creatorMigrationFeePercentage, 0)
+      }
+    },
+    liquidityDistribution: {
+      partnerPermanentLockedLiquidityPercentage: numberParam(
+        draft.platformSpecificParams.partnerPermanentLockedLiquidityPercentage,
+        0
+      ),
+      partnerLiquidityPercentage: numberParam(draft.platformSpecificParams.partnerLiquidityPercentage, 0),
+      creatorPermanentLockedLiquidityPercentage: numberParam(
+        draft.platformSpecificParams.creatorPermanentLockedLiquidityPercentage,
+        100
+      ),
+      creatorLiquidityPercentage: numberParam(draft.platformSpecificParams.creatorLiquidityPercentage, 0)
+    },
+    lockedVesting: {
+      totalLockedVestingAmount: numberParam(draft.platformSpecificParams.totalLockedVestingAmount, 0),
+      numberOfVestingPeriod: numberParam(draft.platformSpecificParams.numberOfVestingPeriod, 0),
+      cliffUnlockAmount: numberParam(draft.platformSpecificParams.cliffUnlockAmount, 0),
+      totalVestingDuration: numberParam(draft.platformSpecificParams.totalVestingDuration, 0),
+      cliffDurationFromMigrationTime: numberParam(draft.platformSpecificParams.cliffDurationFromMigrationTime, 0)
+    },
+    activationType: sdkEnumValue(sdk, "ActivationType", "Timestamp", 1),
+    initialMarketCap: numberParam(draft.platformSpecificParams.initialMarketCap, 30),
+    migrationMarketCap: numberParam(draft.platformSpecificParams.migrationMarketCap, 1000)
+  });
+}
+
+function buildMeteoraPreCreatePoolParam(draft: LaunchDraft, wallet: PublicKey): Record<string, unknown> {
+  return {
+    name: draft.tokenName,
+    symbol: draft.tokenSymbol,
+    uri: metadataUri(draft),
+    poolCreator: wallet,
+    baseMint: new PublicKey(draft.mintPublicKey)
+  };
+}
+
+function buildMeteoraFirstBuyParam(draft: LaunchDraft, wallet: PublicKey): Record<string, unknown> {
+  return {
+    buyer: wallet,
+    receiver: wallet,
+    buyAmount: solToLamportsBn(draft.firstBuy?.amountSol ?? 0),
+    minimumAmountOut: bnFromValue(draft.platformSpecificParams.minimumAmountOut ?? 0),
+    referralTokenAccount: optionalPublicKeyParam(draft.platformSpecificParams.referralTokenAccount) ?? null
+  };
+}
+
 async function meteoraLiveInstructions(
   draft: LaunchDraft,
   wallet: PublicKey,
   deps: ProtocolAdapterDependencies
-): Promise<TransactionInstruction[]> {
-  const { METEORA_DBC_CONFIG_ID } = requireEnv(["METEORA_DBC_CONFIG_ID"]);
-  const { DynamicBondingCurveClient } = await deps.loadMeteoraSdk();
+): Promise<ProtocolAdapterOutput> {
+  const sdk = await deps.loadMeteoraSdk();
+  const { DynamicBondingCurveClient } = sdk;
   const connection = deps.createConnection(resolveSolanaRpcUrl(), "confirmed");
   const client = DynamicBondingCurveClient.create
     ? DynamicBondingCurveClient.create(connection, "confirmed")
     : new DynamicBondingCurveClient(connection, "confirmed");
+  const configuredConfigId =
+    optionalPublicKeyParam(draft.platformSpecificParams.meteoraConfigId) ?? optionalPublicKeyEnv("METEORA_DBC_CONFIG_ID");
   const createPoolParam = {
     baseMint: new PublicKey(draft.mintPublicKey),
-    config: new PublicKey(METEORA_DBC_CONFIG_ID),
+    config: configuredConfigId,
     name: draft.tokenName,
     symbol: draft.tokenSymbol,
     uri: metadataUri(draft),
@@ -461,29 +584,89 @@ async function meteoraLiveInstructions(
     poolCreator: wallet
   };
 
-  if (!draft.firstBuy?.enabled) {
-    return collectSdkInstructions(await client.pool.createPool(createPoolParam));
+  if (configuredConfigId) {
+    if (!draft.firstBuy?.enabled) {
+      return {
+        instructions: collectSdkInstructions(await client.pool.createPool(createPoolParam)),
+        requiredSigners: [],
+        partialSigners: [],
+        summary: []
+      };
+    }
+
+    return {
+      instructions: collectSdkInstructions(
+        await client.pool.createPoolWithFirstBuy({
+          createPoolParam,
+          firstBuyParam: buildMeteoraFirstBuyParam(draft, wallet)
+        })
+      ),
+      requiredSigners: [],
+      partialSigners: [],
+      summary: []
+    };
   }
 
-  if (draft.platformSpecificParams.minimumAmountOut === undefined) {
+  const configKeypair = Keypair.generate();
+  const configAndPoolParams = {
+    ...buildMeteoraDefaultConfigParams(sdk, draft),
+    config: configKeypair.publicKey,
+    feeClaimer: wallet,
+    leftoverReceiver: wallet,
+    quoteMint: NATIVE_MINT,
+    payer: wallet,
+    preCreatePoolParam: buildMeteoraPreCreatePoolParam(draft, wallet)
+  };
+
+  if (!draft.firstBuy?.enabled) {
+    if (!client.pool.createConfigAndPool) {
+      throw new Error("Meteora DBC SDK does not expose createConfigAndPool; set METEORA_DBC_CONFIG_ID to use an existing config.");
+    }
+    return {
+      instructions: collectSdkInstructions(await client.pool.createConfigAndPool(configAndPoolParams)),
+      requiredSigners: [],
+      partialSigners: [configKeypair],
+      transactionGroups: [],
+      summary: [`Meteora config: generated ${configKeypair.publicKey.toBase58()}`]
+    };
+  }
+
+  if (!client.pool.createConfigAndPoolWithFirstBuy) {
     throw new Error(
-      "Meteora DBC live first buy requires platformSpecificParams.minimumAmountOut until server-side quote calculation is wired."
+      "Meteora DBC SDK does not expose createConfigAndPoolWithFirstBuy; set METEORA_DBC_CONFIG_ID to use an existing config."
     );
   }
 
-  const minimumAmountOut = bnFromValue(draft.platformSpecificParams.minimumAmountOut);
-  return collectSdkInstructions(
-    await client.pool.createPoolWithFirstBuy({
-      createPoolParam,
-      firstBuyParam: {
-        buyer: wallet,
-        receiver: wallet,
-        buyAmount: solToLamportsBn(draft.firstBuy.amountSol),
-        minimumAmountOut,
-        referralTokenAccount: null
-      }
-    })
-  );
+  const result = await client.pool.createConfigAndPoolWithFirstBuy({
+    ...configAndPoolParams,
+    firstBuyParam: buildMeteoraFirstBuyParam(draft, wallet)
+  });
+  const createConfigInstructions = isRecord(result) ? collectSdkInstructions(result.createConfigTx) : [];
+  const createPoolWithFirstBuyInstructions = isRecord(result) ? collectSdkInstructions(result.createPoolWithFirstBuyTx) : [];
+
+  return {
+    instructions: collectSdkInstructions(result),
+    requiredSigners: [],
+    partialSigners: [configKeypair],
+    transactionGroups:
+      createConfigInstructions.length > 0 && createPoolWithFirstBuyInstructions.length > 0
+        ? [
+            {
+              label: "meteora-create-config",
+              description: "Create the launch-specific Meteora DBC config.",
+              instructions: createConfigInstructions,
+              partialSigners: [configKeypair]
+            },
+            {
+              label: "meteora-create-pool-first-buy",
+              description: "Create the Meteora DBC pool and execute the optional first buy.",
+              instructions: createPoolWithFirstBuyInstructions,
+              partialSigners: []
+            }
+          ]
+        : [],
+    summary: [`Meteora config: generated ${configKeypair.publicKey.toBase58()}`]
+  };
 }
 
 async function liveInstructions(
@@ -491,9 +674,13 @@ async function liveInstructions(
   draft: LaunchDraft,
   wallet: PublicKey,
   deps: ProtocolAdapterDependencies
-): Promise<TransactionInstruction[]> {
-  if (platform === "pumpfun") return pumpFunLiveInstructions(draft, wallet, deps);
-  if (platform === "raydium_launchlab") return raydiumLiveInstructions(draft, wallet, deps);
+): Promise<Pick<ProtocolAdapterOutput, "instructions" | "partialSigners" | "transactionGroups" | "summary">> {
+  if (platform === "pumpfun") {
+    return { instructions: await pumpFunLiveInstructions(draft, wallet, deps), partialSigners: [], transactionGroups: [], summary: [] };
+  }
+  if (platform === "raydium_launchlab") {
+    return { instructions: await raydiumLiveInstructions(draft, wallet, deps), partialSigners: [], transactionGroups: [], summary: [] };
+  }
   return meteoraLiveInstructions(draft, wallet, deps);
 }
 
@@ -506,14 +693,16 @@ function adapter(platform: LaunchPlatform, label: string, deps: ProtocolAdapterD
 
       const descriptor = getProtocolSdkDescriptor(platform);
       const sdkMethod = getProtocolSdkMethod(platform, !!draft.firstBuy?.enabled);
-      const instructions = await liveInstructions(platform, draft, wallet, deps);
-      if (instructions.length === 0) {
+      const adapterOutput = await liveInstructions(platform, draft, wallet, deps);
+      if (adapterOutput.instructions.length === 0) {
         throw new Error(`${label} SDK returned no launch instructions.`);
       }
 
       return {
-        instructions,
+        instructions: adapterOutput.instructions,
         requiredSigners: descriptor.requiresMintSigner ? [draft.mintPublicKey] : [],
+        partialSigners: adapterOutput.partialSigners ?? [],
+        transactionGroups: adapterOutput.transactionGroups ?? [],
         summary: [
           "Adapter mode: live",
           `${label} launch template ${draft.templateVersion}`,
@@ -522,6 +711,7 @@ function adapter(platform: LaunchPlatform, label: string, deps: ProtocolAdapterD
           `Mint: ${draft.mintPublicKey}`,
           `Prepare token ${draft.tokenSymbol} with ${draft.initialBudgetSol} SOL initial budget`,
           draft.firstBuy?.enabled ? `First buy: ${draft.firstBuy.amountSol} SOL` : "First buy: disabled",
+          ...adapterOutput.summary,
           "Protocol-specific pool instructions are isolated behind this adapter boundary"
         ]
       };

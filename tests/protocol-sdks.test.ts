@@ -13,6 +13,8 @@ describe("protocol SDK descriptors", () => {
 
   it("maps Raydium and Meteora to first-buy capable launch methods", () => {
     expect(getProtocolSdkDescriptor("raydium_launchlab").createWithFirstBuyMethod).toBe("raydium.launchpad.createLaunchpad(createOnly=false)");
-    expect(getProtocolSdkDescriptor("meteora_dbc").createWithFirstBuyMethod).toBe("DynamicBondingCurveClient.pool.createPoolWithFirstBuy");
+    expect(getProtocolSdkDescriptor("meteora_dbc").createWithFirstBuyMethod).toBe(
+      "DynamicBondingCurveClient.pool.createConfigAndPoolWithFirstBuy"
+    );
   });
 });

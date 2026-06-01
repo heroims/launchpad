@@ -83,4 +83,31 @@ describe("validateLaunchDraft", () => {
     expect(result.ok).toBe(false);
     expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "first_buy_amount_invalid" })]));
   });
+
+  it("warns when Meteora DBC first buy defaults to zero minimum amount out", async () => {
+    const result = await validateLaunchDraft({
+      platform: "meteora_dbc",
+      walletAddress: "11111111111111111111111111111111",
+      tokenName: "Launch Token",
+      tokenSymbol: "LAUNCH",
+      tokenMetadata: {
+        description: "A test launch",
+        imageUri: "https://example.com/token.png"
+      },
+      initialBudgetSol: 1,
+      mintPublicKey: "11111111111111111111111111111111",
+      firstBuy: {
+        enabled: true,
+        amountSol: 0.2,
+        slippageBps: 100
+      },
+      templateVersion: "v1",
+      platformSpecificParams: {}
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "meteora_minimum_out_default_zero" })])
+    );
+  });
 });

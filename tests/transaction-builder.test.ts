@@ -98,6 +98,92 @@ describe("buildLaunchTransaction", () => {
     expect(second.requiredSigners).toEqual(first.requiredSigners);
   });
 
+  it("does not return a cached unsigned transaction when the same idempotency key is reused for a different draft", async () => {
+    const wallet = Keypair.generate().publicKey.toBase58();
+    const firstMint = Keypair.generate().publicKey.toBase58();
+    const secondMint = Keypair.generate().publicKey.toBase58();
+    const sharedDraft = {
+      platform: "pumpfun" as const,
+      walletAddress: wallet,
+      tokenMetadata: {
+        description: "A test launch",
+        imageUri: "https://example.com/token.png"
+      },
+      initialBudgetSol: 1,
+      templateVersion: "v1",
+      platformSpecificParams: {}
+    };
+
+    const first = await buildLaunchTransaction({
+      draft: {
+        ...sharedDraft,
+        tokenName: "First Token",
+        tokenSymbol: "FIRST",
+        mintPublicKey: firstMint
+      },
+      idempotencyKey: "idem-reused-for-different-draft",
+      recentBlockhash: "11111111111111111111111111111111"
+    });
+
+    const second = await buildLaunchTransaction({
+      draft: {
+        ...sharedDraft,
+        tokenName: "Second Token",
+        tokenSymbol: "SECOND",
+        mintPublicKey: secondMint
+      },
+      idempotencyKey: "idem-reused-for-different-draft",
+      recentBlockhash: "11111111111111111111111111111111"
+    });
+
+    expect(second.launchRecordId).not.toBe(first.launchRecordId);
+    expect(second.transactions[0].serializedTransaction).not.toBe(first.transactions[0].serializedTransaction);
+    expect(second.requiredSigners).toContain(secondMint);
+    expect(second.summary).toContain(`Mint: ${secondMint}`);
+  });
+
+  it("partially signs a generated Meteora DBC config key before returning the unsigned wallet transaction", async () => {
+    vi.stubEnv("PROTOCOL_SDK_MODE", "live");
+    vi.stubEnv("SOLANA_RPC_URL", "http://127.0.0.1:8899");
+    vi.stubEnv("METEORA_DBC_CONFIG_ID", "");
+
+    const wallet = Keypair.generate().publicKey;
+    const mint = Keypair.generate().publicKey;
+    const result = await buildLaunchTransaction({
+      draft: {
+        platform: "meteora_dbc",
+        walletAddress: wallet.toBase58(),
+        tokenName: "Meteora Token",
+        tokenSymbol: "METEORA",
+        tokenMetadata: {
+          description: "A test launch",
+          imageUri: "https://example.com/token.png",
+          metadataUri: "https://example.com/metadata.json"
+        },
+        initialBudgetSol: 1,
+        mintPublicKey: mint.toBase58(),
+        firstBuy: {
+          enabled: false,
+          amountSol: 0,
+          slippageBps: 100
+        },
+        templateVersion: "v1",
+        platformSpecificParams: {}
+      },
+      idempotencyKey: "idem-meteora-generated-config",
+      recentBlockhash: "11111111111111111111111111111111"
+    });
+
+    const tx = Transaction.from(Buffer.from(result.transactions[0].serializedTransaction, "base64"));
+    const generatedConfigSummary = result.summary.find((line) => line.startsWith("Meteora config: generated "));
+    const generatedConfig = generatedConfigSummary?.replace("Meteora config: generated ", "");
+    const configSignature = tx.signatures.find((signature) => signature.publicKey.toBase58() === generatedConfig);
+
+    expect(generatedConfig).toBeTruthy();
+    expect(configSignature?.signature).toBeTruthy();
+    expect(result.requiredSigners).toContain(mint.toBase58());
+  });
+
   it("rejects dry-run adapters for user-signable transaction builds", async () => {
     vi.stubEnv("PROTOCOL_SDK_MODE", "dry-run");
 
