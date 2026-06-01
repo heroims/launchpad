@@ -3,8 +3,11 @@ import {
   applyLaunchFormToDraft,
   createLaunchIdempotencyKey,
   formatLamportsAsSol,
+  getAgentRecommendationProviderWarning,
+  getApiErrorMessage,
   getDraftForBuild,
   getDraftForValidation,
+  getDraftRecommendationReasons,
   getLaunchFeeEstimate,
   makeBuildTransactionPayload,
   redactFeeRecipientsForDisplay,
@@ -36,6 +39,38 @@ describe("workbench launch flow helpers", () => {
   it("extracts a generated draft for validation", () => {
     expect(getDraftForValidation({ draft })).toEqual(draft);
     expect(getDraftForValidation({ recommendation: { draft } })).toEqual(draft);
+  });
+
+  it("requires an AI provider key when the platform is Agent recommended", () => {
+    expect(getAgentRecommendationProviderWarning({ preferredPlatform: "", apiKey: "" })).toBe(
+      "选择 Agent 推荐时，请先填写或解锁 AI Provider API Key。"
+    );
+    expect(getAgentRecommendationProviderWarning({ preferredPlatform: "meteora_dbc", apiKey: "" })).toBeNull();
+    expect(getAgentRecommendationProviderWarning({ preferredPlatform: "", apiKey: "sk-test" })).toBeNull();
+  });
+
+  it("extracts user-facing API error messages", () => {
+    expect(getApiErrorMessage({ error: "选择 Agent 推荐时，请先填写或解锁 AI Provider API Key。" })).toBe(
+      "选择 Agent 推荐时，请先填写或解锁 AI Provider API Key。"
+    );
+    expect(getApiErrorMessage({ error: 400 })).toBeNull();
+    expect(getApiErrorMessage(null)).toBeNull();
+  });
+
+  it("extracts recommendation reasons from draft API responses", () => {
+    expect(
+      getDraftRecommendationReasons({
+        reasons: ["Budget matches Raydium.", "The draft uses v1 defaults."]
+      })
+    ).toEqual(["Budget matches Raydium.", "The draft uses v1 defaults."]);
+    expect(
+      getDraftRecommendationReasons({
+        recommendation: {
+          reasons: ["Meteora DBC fits the target."]
+        }
+      })
+    ).toEqual(["Meteora DBC fits the target."]);
+    expect(getDraftRecommendationReasons({ ok: true })).toEqual([]);
   });
 
   it("only allows validated drafts to be built into transactions", () => {

@@ -17,8 +17,11 @@ import {
   applyLaunchFormToDraft,
   createLaunchIdempotencyKey,
   formatLamportsAsSol,
+  getAgentRecommendationProviderWarning,
+  getApiErrorMessage,
   getDraftForBuild,
   getDraftForValidation,
+  getDraftRecommendationReasons,
   getLaunchFeeEstimate,
   makeBuildTransactionPayload,
   redactFeeRecipientsForDisplay,
@@ -208,6 +211,8 @@ export default function HomePage() {
   const draftForValidation = useMemo(() => getDraftForValidation(result), [result]);
   const draftForBuild = useMemo(() => getDraftForBuild(result), [result]);
   const currentFeeEstimate = useMemo(() => getLaunchFeeEstimate(result), [result]);
+  const recommendationReasons = useMemo(() => getDraftRecommendationReasons(result), [result]);
+  const apiErrorMessage = useMemo(() => getApiErrorMessage(result), [result]);
   const displayResult = useMemo(() => redactFeeRecipientsForDisplay(result), [result]);
   const showFirstBuyFields = shouldShowFirstBuyFields(form.firstBuyEnabled);
 
@@ -274,6 +279,19 @@ export default function HomePage() {
       ...payload,
       draft: applyLaunchFormToDraft(payload.draft, formDraftInput)
     });
+  }
+
+  async function prepareLaunchDraft(path: "/api/launch/draft" | "/api/skill/launch/prepare") {
+    const providerWarning = getAgentRecommendationProviderWarning({
+      preferredPlatform: form.preferredPlatform,
+      apiKey: form.apiKey
+    });
+    if (providerWarning) {
+      setResult({ error: providerWarning });
+      return;
+    }
+
+    await callApi(path);
   }
 
   async function recordLaunchResult(launchRecordId: string, signatures: string[], status: "sent" | "failed", errorMessage?: string) {
@@ -519,10 +537,10 @@ export default function HomePage() {
           </div>
 
           <div className="actions">
-            <button disabled={busy} onClick={() => callApi("/api/launch/draft")}>生成草案</button>
+            <button disabled={busy} onClick={() => prepareLaunchDraft("/api/launch/draft")}>生成草案</button>
             <button className="secondary" disabled={busy || !draftForValidation} onClick={validateCurrentDraft}>校验草案</button>
             <button className="secondary" disabled={busy || !draftForBuild} onClick={buildCurrentTransaction}>构建待签交易</button>
-            <button className="secondary" disabled={busy} onClick={() => callApi("/api/skill/launch/prepare")}>Skill 一键准备</button>
+            <button className="secondary" disabled={busy} onClick={() => prepareLaunchDraft("/api/skill/launch/prepare")}>Skill 一键准备</button>
           </div>
           <p className="muted">当前版本返回待签名交易 payload；浏览器钱包负责签名和发送，平台不托管私钥或代签。</p>
         </div>
@@ -560,6 +578,17 @@ export default function HomePage() {
 
           <div className="result">
             <h2>API 输出</h2>
+            {apiErrorMessage ? <div className="error-box">{apiErrorMessage}</div> : null}
+            {recommendationReasons.length > 0 ? (
+              <div className="reason-box">
+                <strong>推荐原因</strong>
+                <ul>
+                  {recommendationReasons.map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             {currentFeeEstimate ? (
               <div className="fee-box">
                 <strong>签名前费用确认</strong>

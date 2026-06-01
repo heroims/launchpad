@@ -270,6 +270,19 @@ textarea {
   margin: 0;
 }
 
+.error-box {
+  border: 1px solid rgba(180, 35, 24, 0.22);
+  border-left: 3px solid var(--danger);
+  border-radius: 6px;
+  background: #fff7f6;
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.5;
+  margin-bottom: 12px;
+  padding: 12px 13px;
+}
+
 .result {
   border-top: 1px solid var(--line);
   margin-top: 18px;
@@ -290,6 +303,7 @@ textarea {
 }
 
 .fee-box,
+.reason-box,
 .sign-box {
   border: 1px solid rgba(36, 92, 255, 0.18);
   border-left: 3px solid var(--accent);
@@ -300,6 +314,7 @@ textarea {
 }
 
 .fee-box strong,
+.reason-box strong,
 .sign-box strong {
   display: block;
   margin-bottom: 10px;
@@ -308,6 +323,19 @@ textarea {
   font-size: 12px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.reason-box ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.reason-box li {
+  color: var(--muted-strong);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .fee-box dl {

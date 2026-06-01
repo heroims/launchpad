@@ -44,6 +44,35 @@ export function getDraftForValidation(value: unknown): LaunchDraft | null {
   return null;
 }
 
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+export function getDraftRecommendationReasons(value: unknown): string[] {
+  if (!isRecord(value)) return [];
+  const directReasons = stringArray(value.reasons);
+  if (directReasons.length > 0) return directReasons;
+
+  const recommendation = value.recommendation;
+  if (isRecord(recommendation)) {
+    return stringArray(recommendation.reasons);
+  }
+
+  return [];
+}
+
+export function getAgentRecommendationProviderWarning(input: { preferredPlatform?: string; apiKey?: string }): string | null {
+  if (input.preferredPlatform) return null;
+  if (input.apiKey?.trim()) return null;
+  return "选择 Agent 推荐时，请先填写或解锁 AI Provider API Key。";
+}
+
+export function getApiErrorMessage(value: unknown): string | null {
+  if (!isRecord(value)) return null;
+  return typeof value.error === "string" ? value.error : null;
+}
+
 export function getDraftForBuild(value: unknown): LaunchDraft | null {
   if (!isRecord(value)) return null;
   if (value.ok === true && isLaunchDraft(value.normalizedDraft)) return value.normalizedDraft;
