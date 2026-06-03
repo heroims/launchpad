@@ -11,12 +11,12 @@ import {
   BitKeepWalletAdapter,
 } from "@solana/wallet-adapter-wallets";
 import { BackpackWalletAdapter } from "@solana/wallet-adapter-backpack";
-import { clusterApiUrl } from "@solana/web3.js";
 import type { ReactNode } from "react";
 
 import "@solana/wallet-adapter-react-ui/styles.css";
+import { DEFAULT_SOLANA_RPC_URL } from "@/lib/launch/rpc";
 
-const SOLANA_RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || process.env.SOLANA_RPC_URL || clusterApiUrl("mainnet-beta");
+const SOLANA_RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || DEFAULT_SOLANA_RPC_URL;
 
 export function WalletProviders({ children }: { children: ReactNode }) {
   const wallets = useMemo(

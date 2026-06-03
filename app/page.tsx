@@ -385,10 +385,7 @@ function PageInner() {
                 <input
                   value={form.walletAddress}
                   placeholder={t("form.walletPlaceholder")}
-                  onChange={(event) => {
-                    setForm((current) => ({ ...current, walletAddress: event.target.value }));
-                    localStorage.setItem("launchpad.walletAddress", event.target.value);
-                  }}
+                  onChange={(event) => update("walletAddress", event.target.value)}
                 />
                 <WalletMultiButton />
               </div>
