@@ -25,6 +25,11 @@ export function WalletProviders({ children }: { children: ReactNode }) {
       error.name === "WalletConnectionError" ||
       error.name === "WalletDisconnectedError" ||
       error.name === "WalletNotSelectedError" ||
+      error.name === "WalletNotReadyError" ||
+      error.name === "WalletLoadError" ||
+      error.name === "WalletConfigError" ||
+      error.name === "WalletWindowBlockedError" ||
+      error.name === "WalletWindowClosedError" ||
       msg.includes("User rejected") ||
       msg.includes("cancelled") ||
       msg.includes("canceled") ||
