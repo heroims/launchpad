@@ -6,11 +6,11 @@ import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
 import {
   PhantomWalletAdapter,
   SolflareWalletAdapter,
-  OKXWalletAdapter,
-  BackpackWalletAdapter,
   CoinbaseWalletAdapter,
   TrustWalletAdapter,
+  BitKeepWalletAdapter,
 } from "@solana/wallet-adapter-wallets";
+import { BackpackWalletAdapter } from "@solana/wallet-adapter-backpack";
 import { clusterApiUrl } from "@solana/web3.js";
 import type { ReactNode } from "react";
 
@@ -23,10 +23,10 @@ export function WalletProviders({ children }: { children: ReactNode }) {
     () => [
       new PhantomWalletAdapter(),
       new SolflareWalletAdapter(),
-      new OKXWalletAdapter(),
       new BackpackWalletAdapter(),
       new CoinbaseWalletAdapter(),
       new TrustWalletAdapter(),
+      new BitKeepWalletAdapter(),
     ],
     []
   );
