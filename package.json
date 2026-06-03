@@ -2,6 +2,19 @@
   "name": "launchpad",
   "version": "0.1.0",
   "private": true,
+  "homepage": "https://github.com/heroims/Launchpad",
+  "keywords": [
+    "solana",
+    "token-launch",
+    "pump-fun",
+    "raydium",
+    "meteora",
+    "nextjs",
+    "web3",
+    "blockchain",
+    "ai-agent",
+    "token-creator"
+  ],
   "scripts": {
     "dev": "next dev",
     "build": "next build",
