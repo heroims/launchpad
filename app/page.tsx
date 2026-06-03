@@ -313,7 +313,9 @@ function PageInner() {
         sentSignatures
       }));
     } catch (error) {
-      const message = error instanceof Error ? error.message : t("common.signSendFailed");
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const isRejected = /user rejected|cancelled|canceled|User rejects|User cancelled/i.test(rawMessage);
+      const message = isRejected ? t("wallet.rejected") : rawMessage;
       setSigningStatus(message);
       await recordLaunchResult(preparedLaunch.launchRecordId, sentSignatures, "failed", message).catch(() => undefined);
       setResult((current) => ({
@@ -390,7 +392,7 @@ function PageInner() {
                 <WalletMultiButton />
               </div>
               {wallet.connecting ? (
-                <p className="field-note">{t("wallet.connects", { label: wallet.wallet?.adapter.name ?? "Wallet" })}</p>
+                <p className="field-note">{t("wallet.connecting")}</p>
               ) : wallet.connected && wallet.publicKey ? (
                 <p className="field-note">{t("wallet.connects", { label: wallet.wallet?.adapter.name ?? "Wallet" })}</p>
               ) : null}
