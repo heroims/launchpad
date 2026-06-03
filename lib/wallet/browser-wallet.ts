@@ -39,16 +39,16 @@ export type BrowserWalletGlobal = {
   solflare?: SolanaBrowserWalletProvider;
 };
 
-export function getWalletDetectionMessage(wallet: DetectedSolanaWallet | null): string {
+export function getWalletDetectionMessage(wallet: DetectedSolanaWallet | null): { code: string; params?: Record<string, string> } {
   if (!wallet) {
-    return "没有检测到 Phantom/Solflare 钱包扩展。请使用已安装钱包扩展的浏览器打开，或安装后点击重新检测。";
+    return { code: "wallet.notDetected" };
   }
 
   if (!wallet.provider.signAndSendTransaction) {
-    return `${wallet.label} 已检测到，但当前钱包不支持签名并发送交易。请升级钱包扩展，或换用支持 signAndSendTransaction 的钱包。`;
+    return { code: "wallet.noSignSend", params: { label: wallet.label } };
   }
 
-  return `${wallet.label} 已检测到，请先连接钱包。`;
+  return { code: "wallet.detected", params: { label: wallet.label } };
 }
 
 export function publicKeyToString(publicKey: WalletPublicKeyLike | null | undefined): string | null {

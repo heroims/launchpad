@@ -28,6 +28,8 @@ import {
   shouldShowFirstBuyFields
 } from "@/lib/launch/workbench-flow";
 import { signAndSendLaunchTransactionsWithWallet } from "@/lib/wallet/launch-signing";
+import { I18nProvider, useI18n } from "@/lib/i18n/provider";
+import { LocaleToggle } from "@/lib/i18n/LocaleToggle";
 
 type ApiResult = Record<string, unknown> | null;
 
@@ -96,7 +98,8 @@ async function decryptLocalSecret(payload: string, password: string) {
   return new TextDecoder().decode(decrypted);
 }
 
-export default function HomePage() {
+function PageInner() {
+  const { t } = useI18n();
   const [form, setForm] = useState(defaultForm);
   const [password, setPassword] = useState("");
   const [savedSecret, setSavedSecret] = useState<string | null>(null);
@@ -110,9 +113,10 @@ export default function HomePage() {
   const detectWalletProvider = useCallback(() => {
     const detected = findSolanaWalletProvider(window as unknown as BrowserWalletGlobal);
     setDetectedWallet(detected);
-    setWalletMessage(getWalletDetectionMessage(detected));
+    const msg = getWalletDetectionMessage(detected);
+    setWalletMessage(t(msg.code, msg.params));
     return detected;
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const saved = localStorage.getItem("launchpad.aiSecret");
@@ -145,8 +149,7 @@ export default function HomePage() {
     const handleAccountChanged = (nextPublicKey: unknown) => {
       const address = publicKeyToString(nextPublicKey as never);
       if (!address) {
-        setWalletConnection(null);
-        setWalletMessage("钱包账户已断开。");
+        setWalletMessage(t("wallet.disconnects"));
         return;
       }
       setWalletConnection({ label: detectedWallet.label, address, connected: true });
@@ -155,8 +158,7 @@ export default function HomePage() {
     };
 
     const handleDisconnect = () => {
-      setWalletConnection(null);
-      setWalletMessage("钱包已断开。");
+      setWalletMessage(t("wallet.disconnects"));
     };
 
     detectedWallet.provider.on?.("accountChanged", handleAccountChanged);
@@ -213,7 +215,7 @@ export default function HomePage() {
   const currentFeeEstimate = useMemo(() => getLaunchFeeEstimate(result), [result]);
   const recommendationReasons = useMemo(() => getDraftRecommendationReasons(result), [result]);
   const apiErrorMessage = useMemo(() => getApiErrorMessage(result), [result]);
-  const displayResult = useMemo(() => redactFeeRecipientsForDisplay(result), [result]);
+  const displayResult = useMemo(() => redactFeeRecipientsForDisplay(result, t("result.redacted")), [result, t]);
   const showFirstBuyFields = shouldShowFirstBuyFields(form.firstBuyEnabled);
 
   const formDraftInput = useMemo(
@@ -258,7 +260,7 @@ export default function HomePage() {
   async function validateCurrentDraft() {
     const draft = draftForValidation;
     if (!draft) {
-      setResult({ error: "请先生成草案，再校验草案。" });
+      setResult({ error: "errors.draft_before_validate" });
       return;
     }
 
@@ -270,7 +272,7 @@ export default function HomePage() {
     if (!payload) {
       setResult((current) => ({
         ...(current ?? {}),
-        error: "请先通过草案校验，再构建待签交易。"
+        error: "errors.build_not_validated"
       }));
       return;
     }
@@ -287,7 +289,7 @@ export default function HomePage() {
       apiKey: form.apiKey
     });
     if (providerWarning) {
-      setResult({ error: providerWarning });
+      setResult({ error: t(providerWarning.code) });
       return;
     }
 
@@ -311,27 +313,29 @@ export default function HomePage() {
     if (!preparedLaunch) return;
     const wallet = detectedWallet ?? detectWalletProvider();
     if (!wallet?.provider) {
-      setSigningStatus(getWalletDetectionMessage(null));
+      const msg = getWalletDetectionMessage(null);
+      setSigningStatus(t(msg.code, msg.params));
       return;
     }
     if (!wallet.provider.signAndSendTransaction) {
-      setSigningStatus(getWalletDetectionMessage(wallet));
+      const msg = getWalletDetectionMessage(wallet);
+      setSigningStatus(t(msg.code, msg.params));
       return;
     }
     if (!walletConnection) {
-      setSigningStatus("请先连接钱包再签名发送。");
+      setSigningStatus(t("wallet.requiresConnection"));
       return;
     }
 
     const mintSecretKeyBase64 = sessionStorage.getItem("launchpad.mintSecret");
     const needsMintSigner = form.mintPublicKey && preparedLaunch.requiredSigners.includes(form.mintPublicKey);
     if (needsMintSigner && !mintSecretKeyBase64) {
-      setSigningStatus("当前交易需要 mint keypair 签名，但本浏览器会话没有对应 mint 私钥。请重新生成 Mint 后再构造交易。");
+      setSigningStatus(t("wallet.requiresMintKey"));
       return;
     }
 
     setBusy(true);
-    setSigningStatus("正在请求钱包签名并发送...");
+    setSigningStatus(t("result.signing"));
     const sentSignatures: string[] = [];
     try {
       sentSignatures.push(
@@ -344,14 +348,14 @@ export default function HomePage() {
       );
 
       await recordLaunchResult(preparedLaunch.launchRecordId, sentSignatures, "sent");
-      setSigningStatus(`已发送 ${sentSignatures.length} 笔交易。`);
+      setSigningStatus(t("result.sent", { count: String(sentSignatures.length) }));
       setResult((current) => ({
         ...(current ?? {}),
         sendStatus: "sent",
         sentSignatures
       }));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "签名或发送失败。";
+      const message = error instanceof Error ? error.message : t("common.signSendFailed");
       setSigningStatus(message);
       await recordLaunchResult(preparedLaunch.launchRecordId, sentSignatures, "failed", message).catch(() => undefined);
       setResult((current) => ({
@@ -395,9 +399,9 @@ export default function HomePage() {
       const connection = await connectSolanaWallet(wallet);
       setWalletConnection(connection);
       update("walletAddress", connection.address);
-      setWalletMessage(`${connection.label} 已连接。`);
+      setWalletMessage(t("wallet.connects", { label: connection.label }));
     } catch (error) {
-      setWalletMessage(error instanceof Error ? error.message : "钱包连接失败。");
+      setWalletMessage(error instanceof Error ? error.message : t("wallet.connectFailed"));
     } finally {
       setBusy(false);
     }
@@ -408,7 +412,7 @@ export default function HomePage() {
     try {
       await disconnectSolanaWallet(detectedWallet);
       setWalletConnection(null);
-      setWalletMessage("钱包已断开。");
+      setWalletMessage(t("wallet.disconnects"));
     } finally {
       setBusy(false);
     }
@@ -424,11 +428,12 @@ export default function HomePage() {
     <main className="page">
       <header className="topbar">
         <div className="brand">
-          <h1>Solana 聚合发射工作台</h1>
-          <p>AI 生成草案，后端校验和构造 unsigned transaction，用户钱包最终签名。</p>
+          <h1>{t("header.title")}</h1>
+          <p>{t("header.subtitle")}</p>
         </div>
         <div className="pill-row">
           {walletConnection ? <span className="pill wallet-pill">{walletConnection.label}: {walletConnection.address.slice(0, 4)}...{walletConnection.address.slice(-4)}</span> : null}
+          <LocaleToggle />
           <span className="pill">pump.fun</span>
           <span className="pill">Raydium LaunchLab</span>
           <span className="pill">Meteora DBC</span>
@@ -437,65 +442,65 @@ export default function HomePage() {
 
       <section className="grid">
         <div className="panel">
-          <h2>Launch 输入</h2>
+          <h2>{t("form.title")}</h2>
           <div className="form-grid">
             <div className="field full">
-              <label>钱包地址</label>
+              <label>{t("form.walletAddress")}</label>
               <div className="wallet-row">
                 <input
                   value={form.walletAddress}
-                  placeholder="连接钱包后自动填充，也可以手动输入"
+                  placeholder={t("form.walletPlaceholder")}
                   onChange={(event) => update("walletAddress", event.target.value)}
                 />
                 {walletConnection ? (
-                  <button className="secondary" disabled={busy} onClick={disconnectWallet}>断开</button>
+                  <button className="secondary" disabled={busy} onClick={disconnectWallet}>{t("header.disconnect")}</button>
                 ) : (
                   <button disabled={busy} onClick={detectedWallet ? connectWallet : detectWalletProvider}>
-                    {detectedWallet ? `连接 ${detectedWallet.label}` : "重新检测钱包"}
+                    {detectedWallet ? t("header.connectWallet", { label: detectedWallet.label }) : t("header.redetectWallet")}
                   </button>
                 )}
               </div>
               {walletMessage ? <p className="field-note">{walletMessage}</p> : null}
             </div>
             <div className="field full">
-              <label>Mint Public Key</label>
+              <label>{t("form.mintPublicKey")}</label>
               <div className="wallet-row">
                 <input
                   value={form.mintPublicKey}
-                  placeholder="生成本次 launch 的 mint keypair"
+                  placeholder={t("form.mintPlaceholder")}
                   onChange={(event) => update("mintPublicKey", event.target.value)}
                 />
-                <button className="secondary" type="button" onClick={generateMint}>生成 Mint</button>
+                <button className="secondary" type="button" onClick={generateMint}>{t("form.generateMint")}</button>
               </div>
-              <p className="field-note">mint 私钥仅保存在当前浏览器 sessionStorage；后端只接收 public key。</p>
+              <p className="field-note">{t("form.mintNote")}</p>
             </div>
             <div className="field full">
-              <label>目标</label>
+              <label>{t("form.goal")}</label>
               <textarea value={form.goal} onChange={(event) => update("goal", event.target.value)} />
             </div>
             <div className="field">
-              <label>Token 名称</label>
+              <label>{t("form.tokenName")}</label>
               <input value={form.tokenName} onChange={(event) => update("tokenName", event.target.value)} />
             </div>
             <div className="field">
-              <label>Symbol</label>
+              <label>{t("form.symbol")}</label>
               <input value={form.tokenSymbol} onChange={(event) => update("tokenSymbol", event.target.value)} />
             </div>
             <div className="field">
-              <label>预算 SOL</label>
+              <label>{t("form.budgetSol")}</label>
               <input type="number" min="0" step="0.1" value={form.budgetSol} onChange={(event) => update("budgetSol", event.target.value)} />
             </div>
             <div className="field">
-              <label>是否首买</label>
+              <label>{t("form.firstBuyEnabled")}</label>
               <select value={form.firstBuyEnabled} onChange={(event) => update("firstBuyEnabled", event.target.value)}>
-                <option value="false">只创建</option>
-                <option value="true">创建并首买</option>
+                <option value="false">{t("form.firstBuyCreateOnly")}</option>
+                <option value="true">{t("form.firstBuyCreateAndBuy")}</option>
               </select>
             </div>
             {showFirstBuyFields ? (
               <>
                 <div className="field">
-                  <label>首买 SOL</label>
+                  <label>{t("form.firstBuyAmountSol")}</label>
                   <input
                     type="number"
                     min="0"
@@ -505,7 +510,7 @@ export default function HomePage() {
                   />
                 </div>
                 <div className="field">
-                  <label>首买滑点 bps</label>
+                  <label>{t("form.firstBuySlippageBps")}</label>
                   <input
                     type="number"
                     min="0"
@@ -518,70 +523,70 @@ export default function HomePage() {
               </>
             ) : null}
             <div className="field">
-              <label>目标平台</label>
+              <label>{t("form.targetPlatform")}</label>
               <select value={form.preferredPlatform} onChange={(event) => update("preferredPlatform", event.target.value)}>
-                <option value="">Agent 推荐</option>
+                <option value="">{t("form.agentRecommend")}</option>
                 <option value="pumpfun">pump.fun</option>
                 <option value="raydium_launchlab">Raydium LaunchLab</option>
                 <option value="meteora_dbc">Meteora DBC</option>
               </select>
             </div>
             <div className="field full">
-              <label>描述</label>
+              <label>{t("form.description")}</label>
               <textarea value={form.description} onChange={(event) => update("description", event.target.value)} />
             </div>
             <div className="field full">
-              <label>图片 URI</label>
+              <label>{t("form.imageUri")}</label>
               <input value={form.imageUri} onChange={(event) => update("imageUri", event.target.value)} />
             </div>
           </div>
 
           <div className="actions">
-            <button disabled={busy} onClick={() => prepareLaunchDraft("/api/launch/draft")}>生成草案</button>
-            <button className="secondary" disabled={busy || !draftForValidation} onClick={validateCurrentDraft}>校验草案</button>
-            <button className="secondary" disabled={busy || !draftForBuild} onClick={buildCurrentTransaction}>构建待签交易</button>
-            <button className="secondary" disabled={busy} onClick={() => prepareLaunchDraft("/api/skill/launch/prepare")}>Skill 一键准备</button>
+            <button disabled={busy} onClick={() => prepareLaunchDraft("/api/launch/draft")}>{t("form.generateDraft")}</button>
+            <button className="secondary" disabled={busy || !draftForValidation} onClick={validateCurrentDraft}>{t("form.validateDraft")}</button>
+            <button className="secondary" disabled={busy || !draftForBuild} onClick={buildCurrentTransaction}>{t("form.buildTransaction")}</button>
+            <button className="secondary" disabled={busy} onClick={() => prepareLaunchDraft("/api/skill/launch/prepare")}>{t("form.skillPrepare")}</button>
           </div>
-          <p className="muted">当前版本返回待签名交易 payload；浏览器钱包负责签名和发送，平台不托管私钥或代签。</p>
+          <p className="muted">{t("form.footnote")}</p>
         </div>
 
         <div className="panel">
-          <h2>AI Provider 本地加密</h2>
+          <h2>{t("ai.title")}</h2>
           <div className="field">
-            <label>Provider</label>
+            <label>{t("ai.provider")}</label>
             <select value={form.providerType} onChange={(event) => update("providerType", event.target.value)}>
               <option value="openai-compatible">OpenAI-compatible</option>
               <option value="anthropic">Anthropic</option>
             </select>
           </div>
           <div className="field">
-            <label>Base URL</label>
+            <label>{t("ai.baseUrl")}</label>
             <input value={form.baseUrl} onChange={(event) => update("baseUrl", event.target.value)} />
           </div>
           <div className="field">
-            <label>Model</label>
+            <label>{t("ai.model")}</label>
             <input value={form.model} onChange={(event) => update("model", event.target.value)} />
           </div>
           <div className="field">
-            <label>API Key</label>
+            <label>{t("ai.apiKey")}</label>
             <input type="password" value={form.apiKey} onChange={(event) => update("apiKey", event.target.value)} />
           </div>
           <div className="field">
-            <label>本地加密密码</label>
+            <label>{t("ai.encryptPassword")}</label>
             <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
           </div>
           <div className="actions">
-            <button disabled={!password || !form.apiKey} onClick={saveAiConfig}>本地加密保存</button>
-            <button className="secondary" disabled={!password || !savedSecret} onClick={unlockAiKey}>解锁到本次会话</button>
+            <button disabled={!password || !form.apiKey} onClick={saveAiConfig}>{t("ai.encryptSave")}</button>
+            <button className="secondary" disabled={!password || !savedSecret} onClick={unlockAiKey}>{t("ai.unlockSession")}</button>
           </div>
-          <p className="muted">密钥只存 localStorage 的 AES-GCM 密文；请求时临时发给 API，不写入数据库。</p>
+          <p className="muted">{t("ai.footnote")}</p>
 
           <div className="result">
-            <h2>API 输出</h2>
-            {apiErrorMessage ? <div className="error-box">{apiErrorMessage}</div> : null}
+            <h2>{t("result.title")}</h2>
+            {apiErrorMessage ? <div className="error-box">{t(apiErrorMessage)}</div> : null}
             {recommendationReasons.length > 0 ? (
               <div className="reason-box">
-                <strong>推荐原因</strong>
+                <strong>{t("result.recommendationTitle")}</strong>
                 <ul>
                   {recommendationReasons.map((reason) => (
                     <li key={reason}>{reason}</li>
@@ -591,19 +596,19 @@ export default function HomePage() {
             ) : null}
             {currentFeeEstimate ? (
               <div className="fee-box">
-                <strong>签名前费用确认</strong>
+                <strong>{t("result.feeConfirmTitle")}</strong>
                 <dl>
                   <div>
-                    <dt>服务费</dt>
+                    <dt>{t("result.serviceFee")}</dt>
                     <dd>{formatLamportsAsSol(currentFeeEstimate.serviceFeeLamports)}</dd>
                   </div>
                   <div>
-                    <dt>预估总额</dt>
+                    <dt>{t("result.totalEstimated")}</dt>
                     <dd>{formatLamportsAsSol(currentFeeEstimate.totalEstimatedLamports)}</dd>
                   </div>
                   <div>
-                    <dt>交易数量</dt>
-                    <dd>{preparedLaunch ? preparedLaunch.transactions.length : "校验后构建"}</dd>
+                    <dt>{t("result.transactionCount")}</dt>
+                    <dd>{preparedLaunch ? preparedLaunch.transactions.length : ""}</dd>
                   </div>
                 </dl>
               </div>
@@ -611,9 +616,10 @@ export default function HomePage() {
             {preparedLaunch ? (
               <div className="sign-box">
                 <div>
-                  <strong>待签交易</strong>
+                  <strong>{t("result.signTitle")}</strong>
                   <p className="field-note">
-                    平台 {preparedLaunch.platform}，交易 {preparedLaunch.transactions.length} 笔，服务费{" "}
+                    {preparedLaunch.transactions.length} tx(s),{" "}
+                    {t("result.serviceFee").toLowerCase()}:{" "}
                     {formatLamportsAsSol(preparedLaunch.fee.serviceFeeLamports)}
                   </p>
                   <ol className="transaction-steps">
@@ -628,14 +634,22 @@ export default function HomePage() {
                     ))}
                   </ol>
                 </div>
-                <button disabled={busy} onClick={signAndSendPreparedLaunch}>签名并发送</button>
+                <button disabled={busy} onClick={signAndSendPreparedLaunch}>{t("result.signAndSend")}</button>
                 {signingStatus ? <p className="field-note full-line">{signingStatus}</p> : null}
               </div>
             ) : null}
-            {result ? <pre>{JSON.stringify(displayResult, null, 2)}</pre> : <p className="muted">还没有请求结果。</p>}
+            {result ? <pre>{JSON.stringify(displayResult, null, 2)}</pre> : <p className="muted">{t("result.noResult")}</p>}
           </div>
         </div>
       </section>
     </main>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <I18nProvider>
+      <PageInner />
+    </I18nProvider>
   );
 }

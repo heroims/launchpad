@@ -38,7 +38,7 @@ describe("browser wallet adapter", () => {
   });
 
   it("explains when the browser has no injected Solana wallet", () => {
-    expect(getWalletDetectionMessage(null)).toContain("没有检测到 Phantom/Solflare");
+    expect(getWalletDetectionMessage(null)).toEqual({ code: "wallet.notDetected" });
   });
 
   it("disconnects wallets that expose a disconnect method", async () => {

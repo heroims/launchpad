@@ -62,10 +62,10 @@ export function getDraftRecommendationReasons(value: unknown): string[] {
   return [];
 }
 
-export function getAgentRecommendationProviderWarning(input: { preferredPlatform?: string; apiKey?: string }): string | null {
+export function getAgentRecommendationProviderWarning(input: { preferredPlatform?: string; apiKey?: string }): { code: string } | null {
   if (input.preferredPlatform) return null;
   if (input.apiKey?.trim()) return null;
-  return "选择 Agent 推荐时，请先填写或解锁 AI Provider API Key。";
+  return { code: "provider.needsApiKey" };
 }
 
 export function getApiErrorMessage(value: unknown): string | null {
@@ -179,20 +179,20 @@ export function shouldShowFirstBuyFields(firstBuyEnabled: string): boolean {
   return firstBuyEnabled === "true";
 }
 
-export function redactFeeRecipientsForDisplay(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map((item) => redactFeeRecipientsForDisplay(item));
+export function redactFeeRecipientsForDisplay(value: unknown, redactedLabel = "已隐藏"): unknown {
+  if (Array.isArray(value)) return value.map((item) => redactFeeRecipientsForDisplay(item, redactedLabel));
 
   if (isRecord(value)) {
     return Object.fromEntries(
       Object.entries(value).map(([key, entry]) => [
         key,
-        key === "feeRecipient" ? "已隐藏" : redactFeeRecipientsForDisplay(entry)
+        key === "feeRecipient" ? redactedLabel : redactFeeRecipientsForDisplay(entry, redactedLabel)
       ])
     );
   }
 
   if (typeof value === "string" && value.toLowerCase().startsWith("fee recipient:")) {
-    return "Fee recipient: 已隐藏";
+    return `Fee recipient: ${redactedLabel}`;
   }
 
   return value;

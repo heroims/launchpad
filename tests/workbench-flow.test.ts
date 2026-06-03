@@ -42,9 +42,9 @@ describe("workbench launch flow helpers", () => {
   });
 
   it("requires an AI provider key when the platform is Agent recommended", () => {
-    expect(getAgentRecommendationProviderWarning({ preferredPlatform: "", apiKey: "" })).toBe(
-      "选择 Agent 推荐时，请先填写或解锁 AI Provider API Key。"
-    );
+    expect(getAgentRecommendationProviderWarning({ preferredPlatform: "", apiKey: "" })).toEqual({
+      code: "provider.needsApiKey"
+    });
     expect(getAgentRecommendationProviderWarning({ preferredPlatform: "meteora_dbc", apiKey: "" })).toBeNull();
     expect(getAgentRecommendationProviderWarning({ preferredPlatform: "", apiKey: "sk-test" })).toBeNull();
   });

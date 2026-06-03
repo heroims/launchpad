@@ -8,7 +8,14 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="zh-CN">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var l=localStorage.getItem("launchpad.locale");if(l!="zh"&&l!="en")l=navigator.language?.startsWith("zh")?"zh":"en";document.documentElement.lang=l}catch(e){}})()`
+          }}
+        />
+      </head>
       <body>{children}</body>
     </html>
   );
