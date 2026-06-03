@@ -111,13 +111,14 @@ describe("launch transaction signing", () => {
       transactions: [{ label: "launch", description: "test", serializedTransaction: serializeUnsigned(transaction) }],
       requiredSigners: [mint.publicKey.toBase58()],
       mintSecretKeyBase64: encodeLaunchMintKeypair(mint).secretKeyBase64,
+      connection: {} as unknown as import("@solana/web3.js").Connection,
       wallet: {
         publicKey: payer.publicKey,
-        signAndSendTransaction: async (tx) => {
+        sendTransaction: async (tx, _connection) => {
           expect(tx.signatures.find((signature) => signature.publicKey.equals(mint.publicKey))?.signature).toBeTruthy();
           tx.partialSign(payer);
           walletCalls.push(tx);
-          return { signature: "wallet-signature-0" };
+          return "wallet-signature-0";
         }
       }
     });

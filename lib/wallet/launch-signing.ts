@@ -1,11 +1,13 @@
-import { Keypair, PublicKey, Transaction } from "@solana/web3.js";
-import { publicKeyToString, type SolanaBrowserWalletProvider } from "./browser-wallet";
+import { Keypair, PublicKey, Transaction, type Connection } from "@solana/web3.js";
+import { publicKeyToString } from "./browser-wallet";
 import type { TransactionPayload } from "@/lib/launch/types";
 
-export type LaunchWalletSigner = Pick<
-  SolanaBrowserWalletProvider,
-  "publicKey" | "signTransaction" | "signAllTransactions" | "signAndSendTransaction"
->;
+export type LaunchWalletSigner = {
+  publicKey?: PublicKey | null;
+  signTransaction?: <T extends Transaction>(transaction: T) => Promise<T>;
+  signAllTransactions?: <T extends Transaction>(transactions: T[]) => Promise<T[]>;
+  sendTransaction?: (transaction: Transaction, connection: Connection) => Promise<string>;
+};
 
 type SignLaunchTransactionsInput = {
   transactions: TransactionPayload[];
@@ -13,6 +15,7 @@ type SignLaunchTransactionsInput = {
   wallet: LaunchWalletSigner;
   mintSecretKeyBase64?: string | null;
   recentBlockhash?: string;
+  connection?: Connection;
 };
 
 function base64ToBytes(value: string): Uint8Array {
@@ -93,7 +96,7 @@ export async function signLaunchTransactions(input: SignLaunchTransactionsInput)
 }
 
 export async function signAndSendLaunchTransactionsWithWallet(input: SignLaunchTransactionsInput): Promise<string[]> {
-  if (!input.wallet.signAndSendTransaction) {
+  if (!input.wallet.sendTransaction || !input.connection) {
     throw new Error("Connected wallet does not support signing and sending transactions.");
   }
 
@@ -103,8 +106,8 @@ export async function signAndSendLaunchTransactionsWithWallet(input: SignLaunchT
   applyLocalSigners(transactions, mintSigner);
 
   const signatures: string[] = [];
-  for (const [index, transaction] of transactions.entries()) {
-    signatures.push(normalizeWalletSignature(await input.wallet.signAndSendTransaction(transaction), index));
+  for (const transaction of transactions) {
+    signatures.push(await input.wallet.sendTransaction(transaction, input.connection));
   }
   return signatures;
 }

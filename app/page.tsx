@@ -1,16 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  connectSolanaWallet,
-  disconnectSolanaWallet,
-  findSolanaWalletProvider,
-  getWalletDetectionMessage,
-  publicKeyToString,
-  type BrowserWalletGlobal,
-  type DetectedSolanaWallet,
-  type WalletConnection
-} from "@/lib/wallet/browser-wallet";
+import { useEffect, useMemo, useState } from "react";
+import { useWallet, useConnection } from "@solana/wallet-adapter-react";
+import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { generateLaunchMintKeypair, restoreLaunchMintKeypair } from "@/lib/wallet/mint-keypair";
 import { getPreparedLaunchResult, getPreparedTransactionSteps } from "@/lib/launch/prepared-result";
 import {
@@ -105,18 +97,9 @@ function PageInner() {
   const [savedSecret, setSavedSecret] = useState<string | null>(null);
   const [result, setResult] = useState<ApiResult>(null);
   const [busy, setBusy] = useState(false);
-  const [detectedWallet, setDetectedWallet] = useState<DetectedSolanaWallet | null>(null);
-  const [walletConnection, setWalletConnection] = useState<WalletConnection | null>(null);
-  const [walletMessage, setWalletMessage] = useState("");
   const [signingStatus, setSigningStatus] = useState("");
-
-  const detectWalletProvider = useCallback(() => {
-    const detected = findSolanaWalletProvider(window as unknown as BrowserWalletGlobal);
-    setDetectedWallet(detected);
-    const msg = getWalletDetectionMessage(detected);
-    setWalletMessage(t(msg.code, msg.params));
-    return detected;
-  }, [t]);
+  const wallet = useWallet();
+  const { connection } = useConnection();
 
   useEffect(() => {
     const saved = localStorage.getItem("launchpad.aiSecret");
@@ -134,41 +117,15 @@ function PageInner() {
       const restored = restoreLaunchMintKeypair(savedMintSecret);
       setForm((current) => ({ ...current, mintPublicKey: restored.publicKey }));
     }
-
-    detectWalletProvider();
-    const retryDelays = [500, 1500, 3000];
-    const retryTimers = retryDelays.map((delay) => window.setTimeout(detectWalletProvider, delay));
-
-    return () => {
-      retryTimers.forEach(window.clearTimeout);
-    };
-  }, [detectWalletProvider]);
+  }, []);
 
   useEffect(() => {
-    if (!detectedWallet) return;
-    const handleAccountChanged = (nextPublicKey: unknown) => {
-      const address = publicKeyToString(nextPublicKey as never);
-      if (!address) {
-        setWalletMessage(t("wallet.disconnects"));
-        return;
-      }
-      setWalletConnection({ label: detectedWallet.label, address, connected: true });
+    if (wallet.publicKey) {
+      const address = wallet.publicKey.toBase58();
       setForm((current) => ({ ...current, walletAddress: address }));
       localStorage.setItem("launchpad.walletAddress", address);
-    };
-
-    const handleDisconnect = () => {
-      setWalletMessage(t("wallet.disconnects"));
-    };
-
-    detectedWallet.provider.on?.("accountChanged", handleAccountChanged);
-    detectedWallet.provider.on?.("disconnect", handleDisconnect);
-
-    return () => {
-      detectedWallet.provider.off?.("accountChanged", handleAccountChanged);
-      detectedWallet.provider.off?.("disconnect", handleDisconnect);
-    };
-  }, [detectedWallet]);
+    }
+  }, [wallet.publicKey]);
 
   const body = useMemo(
     () => ({
@@ -318,18 +275,11 @@ function PageInner() {
 
   async function signAndSendPreparedLaunch() {
     if (!preparedLaunch) return;
-    const wallet = detectedWallet ?? detectWalletProvider();
-    if (!wallet?.provider) {
-      const msg = getWalletDetectionMessage(null);
-      setSigningStatus(t(msg.code, msg.params));
+    if (!wallet.connected || !wallet.publicKey) {
+      setSigningStatus(t("wallet.requiresConnection"));
       return;
     }
-    if (!wallet.provider.signAndSendTransaction) {
-      const msg = getWalletDetectionMessage(wallet);
-      setSigningStatus(t(msg.code, msg.params));
-      return;
-    }
-    if (!walletConnection) {
+    if (!wallet.sendTransaction) {
       setSigningStatus(t("wallet.requiresConnection"));
       return;
     }
@@ -350,7 +300,8 @@ function PageInner() {
           transactions: preparedLaunch.transactions,
           requiredSigners: preparedLaunch.requiredSigners,
           mintSecretKeyBase64,
-          wallet: wallet.provider
+          wallet,
+          connection,
         }))
       );
 
@@ -398,33 +349,6 @@ function PageInner() {
     update("apiKey", apiKey);
   }
 
-  async function connectWallet() {
-    setBusy(true);
-    setWalletMessage("");
-    try {
-      const wallet = detectedWallet ?? detectWalletProvider();
-      const connection = await connectSolanaWallet(wallet);
-      setWalletConnection(connection);
-      update("walletAddress", connection.address);
-      setWalletMessage(t("wallet.connects", { label: connection.label }));
-    } catch (error) {
-      setWalletMessage(error instanceof Error ? error.message : t("wallet.connectFailed"));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function disconnectWallet() {
-    setBusy(true);
-    try {
-      await disconnectSolanaWallet(detectedWallet);
-      setWalletConnection(null);
-      setWalletMessage(t("wallet.disconnects"));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   function generateMint() {
     const mint = generateLaunchMintKeypair();
     sessionStorage.setItem("launchpad.mintSecret", mint.secretKeyBase64);
@@ -439,7 +363,11 @@ function PageInner() {
           <p>{t("header.subtitle")}</p>
         </div>
         <div className="pill-row">
-          {walletConnection ? <span className="pill wallet-pill">{walletConnection.label}: {walletConnection.address.slice(0, 4)}...{walletConnection.address.slice(-4)}</span> : null}
+          {wallet.connected && wallet.publicKey ? (
+            <span className="pill wallet-pill">
+              {wallet.wallet?.adapter.name ?? "Wallet"}: {wallet.publicKey.toBase58().slice(0, 4)}...{wallet.publicKey.toBase58().slice(-4)}
+            </span>
+          ) : null}
           <LocaleToggle />
           <span className="pill">pump.fun</span>
           <span className="pill">Raydium LaunchLab</span>
@@ -457,17 +385,18 @@ function PageInner() {
                 <input
                   value={form.walletAddress}
                   placeholder={t("form.walletPlaceholder")}
-                  onChange={(event) => update("walletAddress", event.target.value)}
+                  onChange={(event) => {
+                    setForm((current) => ({ ...current, walletAddress: event.target.value }));
+                    localStorage.setItem("launchpad.walletAddress", event.target.value);
+                  }}
                 />
-                {walletConnection ? (
-                  <button className="secondary" disabled={busy} onClick={disconnectWallet}>{t("header.disconnect")}</button>
-                ) : (
-                  <button disabled={busy} onClick={detectedWallet ? connectWallet : detectWalletProvider}>
-                    {detectedWallet ? t("header.connectWallet", { label: detectedWallet.label }) : t("header.redetectWallet")}
-                  </button>
-                )}
+                <WalletMultiButton />
               </div>
-              {walletMessage ? <p className="field-note">{walletMessage}</p> : null}
+              {wallet.connecting ? (
+                <p className="field-note">{t("wallet.connects", { label: wallet.wallet?.adapter.name ?? "Wallet" })}</p>
+              ) : wallet.connected && wallet.publicKey ? (
+                <p className="field-note">{t("wallet.connects", { label: wallet.wallet?.adapter.name ?? "Wallet" })}</p>
+              ) : null}
             </div>
             <div className="field full">
               <label>{t("form.mintPublicKey")}</label>
