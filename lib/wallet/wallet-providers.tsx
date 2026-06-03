@@ -20,7 +20,20 @@ const SOLANA_RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || DEFAULT_SOLANA_
 
 export function WalletProviders({ children }: { children: ReactNode }) {
   const onError = useCallback((error: Error) => {
-    if (error.name === "WalletConnectionError" || error.name === "WalletDisconnectedError" || error.message?.includes("User rejected") || error.message?.includes("cancelled") || error.message?.includes("canceled")) {
+    const msg = error.message ?? "";
+    if (
+      error.name === "WalletConnectionError" ||
+      error.name === "WalletDisconnectedError" ||
+      error.name === "WalletNotSelectedError" ||
+      msg.includes("User rejected") ||
+      msg.includes("cancelled") ||
+      msg.includes("canceled") ||
+      msg.includes("not found") ||
+      msg.includes("not installed") ||
+      msg.includes("wallet not") ||
+      msg.includes("Cannot read properties of undefined") ||
+      msg.includes("extension")
+    ) {
       return;
     }
     console.error(error);

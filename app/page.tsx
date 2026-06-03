@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import { WalletButton } from "@/lib/wallet/wallet-button";
 import { generateLaunchMintKeypair, restoreLaunchMintKeypair } from "@/lib/wallet/mint-keypair";
 import { getPreparedLaunchResult, getPreparedTransactionSteps } from "@/lib/launch/prepared-result";
 import {
@@ -389,7 +389,7 @@ function PageInner() {
                   placeholder={t("form.walletPlaceholder")}
                   onChange={(event) => update("walletAddress", event.target.value)}
                 />
-                <WalletMultiButton />
+                <WalletButton />
               </div>
               {wallet.connecting ? (
                 <p className="field-note">{t("wallet.connecting")}</p>
