@@ -251,7 +251,14 @@ function PageInner() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload)
       });
+      if (!response.ok) {
+        const text = await response.text();
+        setResult({ error: `HTTP ${response.status}: ${text.slice(0, 200)}` });
+        return;
+      }
       setResult((await response.json()) as ApiResult);
+    } catch (error) {
+      setResult({ error: error instanceof Error ? error.message : String(error) });
     } finally {
       setBusy(false);
     }
