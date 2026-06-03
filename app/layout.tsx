@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { WalletProviders } from "@/lib/wallet/wallet-providers";
 
 export const metadata: Metadata = {
   title: "Launchpad",
@@ -16,7 +17,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           }}
         />
       </head>
-      <body>{children}</body>
+      <body><WalletProviders>{children}</WalletProviders></body>
     </html>
   );
 }
